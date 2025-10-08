@@ -41,11 +41,11 @@ class MoodleService {
   async createUser(userData) {
     try {
       const user = {
-        username: userData.username,
+        username: userData.email,
         firstname: userData.first_name,
         lastname: userData.last_name,
         email: userData.email,
-        city: userData.city,
+        city: userData.city || "",
         idnumber: userData.idnumber,
         password: userData.password || 'DefaultPassword123!',
         auth: 'manual'
@@ -57,7 +57,7 @@ class MoodleService {
         'users[0][lastname]': user.lastname,
         'users[0][email]': user.email,
         'users[0][password]': user.password,
-        'users[0][auth]': user.auth,
+        'users[0][auth]': user.auth || 'manual',
         'users[0][idnumber]': user.idnumber,
         'users[0][city]': user.city,
       });
@@ -80,10 +80,10 @@ class MoodleService {
       const updateData = {
         'users[0][id]': userId,
         'users[0][username]': userData.username,
-        'users[0][firstname]': userData.firstname,
-        'users[0][lastname]': userData.lastname,
+        'users[0][firstname]': userData.first_name,
+        'users[0][lastname]': userData.last_name,
         'users[0][email]': userData.email,
-        'users[0][auth]': userData.auth,
+        'users[0][auth]': userData.auth || 'manual',
         'users[0][idnumber]': userData.idnumber,
         'users[0][city]': userData.city,
       };
@@ -141,16 +141,15 @@ class MoodleService {
       const category = {
         name: categoryData.name,
         parent: categoryData.parent || 0,
-        description: categoryData.description || ''
+        description: categoryData.description || '',
+        idnumber: categoryData.idnumber || ''
       };
 
       const result = await this.callWebService('core_course_create_categories', {
-        'categories[0][name]': category.name,
-        'categories[0][parent]': category.parent,
-        'categories[0][description]': category.description
+        categories: [category]
       });
 
-      if (result && result.length > 0) {
+      if (result && result[0] && result[0].id) {
         logger.info(`Created category in Moodle: ${category.name} (ID: ${result[0].id})`);
         return result[0];
       }
@@ -206,7 +205,10 @@ class MoodleService {
     try {
       const updateData = {
         'courses[0][id]': courseId,
-        'courses[0][fullname]': courseData.course_name,
+        'courses[0][fullname]': courseData.course_fullname,
+        'courses[0][shortname]': courseData.course_shortname,
+        'courses[0][categoryid]': courseData.course_categoryid,
+        'courses[0][idnumber]': courseData.course_idnumber,
         'courses[0][summary]': courseData.description || ''
       };
 
@@ -353,31 +355,7 @@ class MoodleService {
     }
   }
 
-  // Tạo category trong Moodle
-  async createCategory(categoryData) {
-    try {
-      const category = {
-        name: categoryData.name,
-        description: categoryData.description || '',
-        parent: categoryData.parent || 0,
-        idnumber: categoryData.idnumber || '',
-      };
 
-      const result = await this.callWebService('core_course_create_categories', {
-        categories: [category]
-      });
-
-      if (result && result[0] && result[0].id) {
-        logger.info(`Category created: ${categoryData.name} (ID: ${result[0].id})`);
-        return result[0];
-      } else {
-        throw new Error('Failed to create category');
-      }
-    } catch (error) {
-      logger.error('Error creating category:', error);
-      throw error;
-    }
-  }
 
   // Lấy danh sách categories
   async getCategories() {
@@ -414,114 +392,96 @@ class MoodleService {
     }
   }
 
-  // Lấy thông tin course contents
-  async getCourseContents(courseId) {
+  // Tạo/cập nhật section trong course
+  async createSection(courseId, sectionData) {
     try {
-      const result = await this.callWebService('core_course_get_contents', {
-        courseid: courseId
-      });
-      return result;
-    } catch (error) {
-      logger.error('Error getting course contents:', error);
-      throw error;
-    }
-  }
-
-  // Cập nhật section name và summary
-  async updateSection(sectionId, sectionData) {
-    try {
-      const result = await this.callWebService('core_course_edit_section', {
-        id: sectionId,
+      const result = await this.callWebService('local_wsmanagesections_create_section', {
+        courseid: courseId,
         name: sectionData.name,
         summary: sectionData.summary || '',
-        summaryformat: 1,
+        section: sectionData.section || 0,
         visible: sectionData.visible !== undefined ? sectionData.visible : 1
       });
 
-      logger.info(`Section updated: ${sectionData.name}`);
-      return result;
-    } catch (error) {
-      logger.error('Error updating section:', error);
-      throw error;
-    }
-  }
-
-  // Tạo sections bằng cách cập nhật các sections có sẵn trong course topics format
-  async createSections(courseId, sectionsData) {
-    try {
-      // Lấy thông tin course hiện tại
-      const courseContents = await this.getCourseContents(courseId);
-      
-      for (let i = 0; i < sectionsData.length; i++) {
-        const sectionData = sectionsData[i];
-        
-        // Tìm section tương ứng (thường section 0 là general, section 1, 2, 3... là topics)
-        const targetSectionIndex = i + 1; // Bỏ qua section 0 (general)
-        const existingSection = courseContents.find(section => section.section === targetSectionIndex);
-        
-        if (existingSection) {
-          await this.updateSection(existingSection.id, {
-            name: sectionData.name,
-            summary: sectionData.summary,
-            visible: sectionData.visible
-          });
-        }
+      if (result && result.sectionid) {
+        logger.info(`Section created: ${sectionData.name} in course ${courseId}`);
+        return { id: result.sectionid, name: sectionData.name };
+      } else {
+        throw new Error('Failed to create section');
       }
-      
-      logger.info(`Created/updated ${sectionsData.length} sections in course ${courseId}`);
-      return true;
     } catch (error) {
-      logger.error('Error creating sections:', error);
+      logger.error('Error creating section:', error);
       throw error;
     }
   }
 
-  // Tạo quiz activity
-  async createQuizActivity(courseId, sectionNumber, quizData) {
+  // Tạo quiz trong course
+  async createQuiz(courseId, sectionId, quizData) {
     try {
-      // Tạo quiz bằng cách thêm activity vào course
-      const params = {
-        courseid: courseId,
-        section: sectionNumber,
-        modulename: 'quiz',
+      const quiz = {
+        course: courseId,
         name: quizData.name,
         intro: quizData.intro || '',
-        introformat: 1,
-        grade: quizData.grade || 10,
-        attempts: quizData.attempts || 1,
+        introformat: 1, // HTML format
         timeopen: quizData.timeopen || 0,
         timeclose: quizData.timeclose || 0,
         timelimit: quizData.timelimit || 0,
+        overduehandling: quizData.overduehandling || 'autosubmit',
+        graceperiod: quizData.graceperiod || 0,
         preferredbehaviour: quizData.preferredbehaviour || 'deferredfeedback',
-        visible: 1
+        attempts: quizData.attempts || 0,
+        gradecat: quizData.gradecat || -1,
+        grademethod: quizData.grademethod || 1,
+        decimalpoints: quizData.decimalpoints || 2,
+        questiondecimalpoints: quizData.questiondecimalpoints || 2,
+        sumgrades: quizData.sumgrades || 0,
+        grade: quizData.grade || 10,
+        timecreated: Math.floor(Date.now() / 1000),
+        timemodified: Math.floor(Date.now() / 1000),
+        password: quizData.password || '',
+        subnet: quizData.subnet || '',
+        delay1: quizData.delay1 || 0,
+        delay2: quizData.delay2 || 0,
+        showuserpicture: quizData.showuserpicture || 0,
+        showblocks: quizData.showblocks || 0,
+        navmethod: quizData.navmethod || 'free',
+        shuffleanswers: quizData.shuffleanswers || 1,
+        cmidnumber: quizData.cmidnumber || ''
       };
 
-      const result = await this.callWebService('core_course_add_module', params);
+      const result = await this.callWebService('mod_quiz_add_instance', {
+        quiz: quiz
+      });
 
-      if (result && result.id) {
-        logger.info(`Quiz activity created: ${quizData.name} in course ${courseId}, section ${sectionNumber}`);
+      if (result && result.quizid) {
+        logger.info(`Quiz created: ${quizData.name} in course ${courseId}`);
+
+        // Move quiz to the specified section if sectionId is provided
+        if (sectionId) {
+          await this.moveModuleToSection(result.cmid, sectionId);
+        }
+
         return result;
       } else {
-        // Thử phương pháp thay thế
-        return await this.createQuizAlternative(courseId, sectionNumber, quizData);
+        throw new Error('Failed to create quiz');
       }
     } catch (error) {
-      logger.error('Error creating quiz activity:', error);
-      // Thử phương pháp thay thế
-      return await this.createQuizAlternative(courseId, sectionNumber, quizData);
+      logger.error('Error creating quiz:', error);
+      throw error;
     }
   }
 
-  // Phương pháp thay thế để tạo quiz
-  async createQuizAlternative(courseId, sectionNumber, quizData) {
+  // Di chuyển module (quiz) vào section
+  async moveModuleToSection(cmid, sectionId) {
     try {
-      logger.info(`Attempting alternative quiz creation for: ${quizData.name}`);
-      // Đơn giản hóa: chỉ log thông tin, không tạo quiz thực sự
-      // Có thể implement sau khi tìm được API phù hợp
-      return { success: true, message: `Quiz ${quizData.name} prepared for manual creation` };
+      await this.callWebService('core_course_edit_module', {
+        cmid: cmid,
+        section: sectionId
+      });
+      logger.info(`Module ${cmid} moved to section ${sectionId}`);
     } catch (error) {
-      logger.warn('Alternative quiz creation also failed:', error);
-      return null;
+      logger.error('Error moving module to section:', error);
+      throw error;
     }
   }
 }

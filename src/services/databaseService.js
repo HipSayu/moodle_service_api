@@ -67,12 +67,26 @@ class DatabaseService {
   // Lấy danh sách sinh viên
   async getStudents(lastSyncDate = null) {
     try {
-      let query = `
-       SELECT TOP 10
-       *
-       FROM DT_SinhVien
-      `;
-
+      // let query = `
+      //  SELECT TOP 10
+      //  *
+      //  FROM DT_SinhVien
+      // `;
+      let query = `SELECT DISTINCT
+    sv.MaSinhVien,
+    sv.HoDem,
+    sv.Ten,
+    sv.NguyenQuan,
+    sv.HoDem + ' ' + sv.Ten AS HoTenSinhVien,
+    sv.Email,
+    lhoc.TenLopHoc
+FROM dbo.DT_DangKyHocPhan dkhp WITH (NOLOCK)
+INNER JOIN dbo.DT_SinhVien sv WITH (NOLOCK) ON sv.Id = dkhp.IDSinhVien
+INNER JOIN dbo.TKB_LopHocPhan lhp WITH (NOLOCK) ON lhp.Id = dkhp.IDLopHocPhan
+INNER JOIN dbo.TKB_MonHoc mh WITH (NOLOCK) ON mh.Id = lhp.IDMonHoc
+INNER JOIN dbo.TKB_LopHoc lhoc WITH (NOLOCK) ON lhoc.Id = mh.IDLopHoc
+WHERE lhoc.TenLopHoc = '66CS2'
+ORDER BY sv.MaSinhVien;`
       const parameters = {};
 
       if (lastSyncDate) {
@@ -80,7 +94,7 @@ class DatabaseService {
         parameters.lastSyncDate = lastSyncDate;
       }
 
-      query += ' ORDER BY NgayCapNhat DESC';
+      // query += ' ORDER BY NgayCapNhat DESC';
 
       const result = await this.executeQuery(query, parameters);
       return result.recordset;
@@ -137,7 +151,7 @@ class DatabaseService {
   async getCourses(lastSyncDate = null) {
     try {
       let query = `
-       SELECT Top 2
+       SELECT
     lhp.Id AS IDLopHocPhan,
     lhp.MaLopHocPhan,
     mh.TenMonHoc,
@@ -182,6 +196,44 @@ ORDER BY lhoc.TenLopHoc, lhp.MaLopHocPhan;
       return result.recordset;
     } catch (error) {
       logger.error('Error getting courses:', error);
+      throw error;
+    }
+  }
+
+  // GiangVien
+  async getTeachers(lastSyncDate = null) {
+    try {
+      // let query = `
+      //    SELECT Top 3 * FROM NS_NhanSu
+      // `;
+
+      let query = `SELECT DISTINCT 
+       gv.MaGiangVien AS MaNhanSu, gv.HoDem + ' ' + gv.Ten AS HoTenGiangVien, gv.Email,gv.Ten,gv.HoDem,
+       CASE WHEN lhgv.IsTroGiang = 1 THEN 'Trợ giảng' ELSE 'Giảng viên chính' END AS VaiTro
+FROM dbo.TKB_LopHocPhan lhp WITH (NOLOCK)
+INNER JOIN dbo.TKB_DanhSachLopXepLichHoc ds WITH (NOLOCK) ON ds.IDLopHocPhan = lhp.Id
+INNER JOIN dbo.TKB_LopXepLichHoc lxl WITH (NOLOCK) ON lxl.Id = ds.IDLopXepLichHoc
+INNER JOIN dbo.TKB_LichHoc lh WITH (NOLOCK) ON lh.IDLopXepLichHoc = lxl.Id
+INNER JOIN dbo.TKB_LichHocGiangVien lhgv WITH (NOLOCK) ON lhgv.IDLichHoc = lh.Id
+INNER JOIN dbo.DM_GiangVien gv WITH (NOLOCK) ON gv.Id = lhgv.IDGiangVien
+INNER JOIN dbo.TKB_MonHoc mh WITH (NOLOCK) ON mh.Id = lhp.IDMonHoc
+INNER JOIN dbo.TKB_LopHoc lhoc WITH (NOLOCK) ON lhoc.Id = mh.IDLopHoc
+WHERE lhoc.TenLopHoc = '66CS2'
+
+`
+      const parameters = {};
+
+      if (lastSyncDate) {
+        query += ' AND NgayCapNhat > @lastSyncDate';
+        parameters.lastSyncDate = lastSyncDate;
+      }
+
+      // query += ' ORDER BY NgayCapNhat DESC';
+
+      const result = await this.executeQuery(query, parameters);
+      return result.recordset;
+    } catch (error) {
+      logger.error('Error getting teachers from HRM_NUCE:', error);
       throw error;
     }
   }
