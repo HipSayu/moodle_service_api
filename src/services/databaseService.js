@@ -245,7 +245,7 @@ SELECT
   }
 
   // Lấy danh sách đăng ký khóa học
-  async getStudentCourseEnrollments(courseId = null) {
+  async getStudentCourseEnrollments(courseId = null, lastSyncDate = null) {
     try {
       let query = `
        SELECT DISTINCT
@@ -254,7 +254,8 @@ SELECT
     mh.TenMonHoc,
     sv.MaSinhVien,
     sv.HoDem + ' ' + sv.Ten AS HoTenSinhVien,
-    sv.Email
+    sv.Email,
+    lhp.NgayCapNhat
     FROM dbo.DT_DangKyHocPhan dkhp WITH (NOLOCK)
     INNER JOIN dbo.DT_SinhVien sv WITH (NOLOCK) ON sv.Id = dkhp.IDSinhVien
     INNER JOIN dbo.TKB_LopHocPhan lhp WITH (NOLOCK) ON lhp.Id = dkhp.IDLopHocPhan
@@ -264,8 +265,12 @@ SELECT
       `;
       const parameters = {};
       if (courseId) {
-        query += 'AND lhp.id = @courseId';
+        query += 'AND lhp.id = @courseId ';
         parameters.courseId = courseId;
+      }
+      if (lastSyncDate) {
+        query += 'AND lhp.NgayCapNhat > @lastSyncDate ';
+        parameters.lastSyncDate = lastSyncDate;
       }
       const result = await this.executeQuery(query, parameters);
       return result.recordset;
@@ -275,11 +280,11 @@ SELECT
     }
   }
 
-  async getTeacherCourseEnrollments(courseId = null) {
+  async getTeacherCourseEnrollments(courseId = null, lastSyncDate = null) {
     try {
       let query = `
        SELECT DISTINCT lhp.MaLopHocPhan, lhoc.TenLopHoc, mh.TenMonHoc,
-       gv.MaGiangVien, gv.HoDem + ' ' + gv.Ten AS HoTenGiangVien, gv.Email,
+       gv.MaGiangVien, gv.HoDem + ' ' + gv.Ten AS HoTenGiangVien, gv.Email,lhp.NgayCapNhat,
        CASE WHEN lhgv.IsTroGiang = 1 THEN 'Trợ giảng' ELSE 'Giảng viên chính' END AS VaiTro
         FROM dbo.TKB_LopHocPhan lhp WITH (NOLOCK)
         INNER JOIN dbo.TKB_DanhSachLopXepLichHoc ds WITH (NOLOCK) ON ds.IDLopHocPhan = lhp.Id
@@ -292,8 +297,12 @@ SELECT
       `;
       const parameters = {};
       if (courseId) {
-        query += 'WHERE lhp.id= @courseId';
+        query += 'WHERE lhp.id= @courseId ';
         parameters.courseId = courseId;
+      }
+      if (lastSyncDate) {
+        query += (courseId ? 'AND ' : 'WHERE ') + 'lhp.NgayCapNhat > @lastSyncDate ';
+        parameters.lastSyncDate = lastSyncDate;
       }
       const result = await this.executeQuery(query, parameters);
       return result.recordset;

@@ -1,4 +1,5 @@
 import databaseService from './databaseService.js';
+import databaseGvService from './databaseGvService.js';
 import moodleService from './moodleService.js';
 import { logger, syncLogger } from '../utils/logger.js';
 import { retryOperation } from '../utils/errorHandler.js';
@@ -119,7 +120,7 @@ class SyncToMoodleService {
       syncLogger.info('Starting teacher sync to Moodle');
 
       const lastSync = this.lastSyncDate.teachers;
-      const teachers = await databaseService.getTeachers(lastSync);
+      const teachers = await databaseGvService.getTeachers(lastSync);
 
       let syncCount = 0;
       let errorCount = 0;
@@ -327,8 +328,8 @@ class SyncToMoodleService {
     try {
       syncLogger.info('Starting enrollment sync to Moodle');
 
+      const lastSync = this.lastSyncDate.studentEnrollments;
       const courses = await databaseService.getCourses();
-      // const students = await databaseService.getStudents();
       let totalEnrollments = 0;
       let syncCount = 0;
       let errorCount = 0;
@@ -342,7 +343,7 @@ class SyncToMoodleService {
             continue;
           }
           // Lấy danh sách đăng ký từ SQL Server
-          const enrollments = await databaseService.getStudentCourseEnrollments(course.IDLopHocPhan);
+          const enrollments = await databaseService.getStudentCourseEnrollments(course.IDLopHocPhan, lastSync);
           totalEnrollments += enrollments.length;
 
           for (const enrollment of enrollments) {
@@ -370,6 +371,9 @@ class SyncToMoodleService {
         }
       }
 
+      this.lastSyncDate.studentEnrollments = new Date();
+      this.saveLastSync();
+
       syncLogger.info('Enrollment sync to Moodle completed', {
         totalEnrollments,
         syncCount,
@@ -394,6 +398,7 @@ class SyncToMoodleService {
   async syncTeacherEnrollmentsToMoodle() {
     try {
       syncLogger.info('Starting teacher enrollment sync to Moodle');
+      const lastSync = this.lastSyncDate.teacherEnrollments;
       const courses = await databaseService.getCourses();
       let totalEnrollments = 0;
       let syncCount = 0;
@@ -408,7 +413,7 @@ class SyncToMoodleService {
             continue;
           }
           // Lấy danh sách đăng ký giảng viên từ HRM_NUCE database
-          const enrollments = await databaseService.getTeacherCourseEnrollments(course.IDLopHocPhan);
+          const enrollments = await databaseService.getTeacherCourseEnrollments(course.IDLopHocPhan, lastSync);
           totalEnrollments += enrollments.length;
           for (const enrollment of enrollments) {
             try {
@@ -433,6 +438,9 @@ class SyncToMoodleService {
           syncLogger.error(`Failed to sync teacher enrollments for course ${course.course_code}:`, courseError);
         }
       }
+
+      this.lastSyncDate.teacherEnrollments = new Date();
+      this.saveLastSync();
 
       syncLogger.info(`Teacher enrollment sync completed: ${syncCount}/${totalEnrollments} synced, ${errorCount} errors`);
 
