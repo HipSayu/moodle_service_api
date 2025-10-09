@@ -2,9 +2,7 @@ import databaseService from './databaseService.js';
 import moodleService from './moodleService.js';
 import { logger, syncLogger } from '../utils/logger.js';
 import { retryOperation } from '../utils/errorHandler.js';
-import databaseGvService from './databaseGvService.js';
 import { CONSTRAINTS } from 'cron/dist/constants.js';
-
 class SyncToMoodleService {
   constructor() {
     this.lastSyncDate = {};
@@ -27,12 +25,11 @@ class SyncToMoodleService {
               username: student.MaSinhVien,
               first_name: student.HoDem,
               last_name: student.Ten,
-              email: student.Email,
-              city: student.NguyenQuan,
+              email: student.Email ,
+              city: student.NguyenQuan || "HN",
               idnumber: student.MaSinhVien,
               password: student.MaSinhVien,
             };
-
             if (existingUser) {
               console.log(`user đã tồn tại ${userData.first_name} ${userData.last_name}`)
               await moodleService.updateUser(existingUser.id, userData);
@@ -179,7 +176,7 @@ class SyncToMoodleService {
             console.log("----------------------------------------")
             // console.log(course)
             // Kiểm tra course đã tồn tại chưa
-            const existingCourse = await moodleService.getCourseByShortname(course.MaLopHocPhan);
+            const existingCourse = await moodleService.getCourseByShortname(course.IDLopHocPhan);
             // Tìm Id Categori theo CategoriNumber
             const category = await moodleService.getCategoryByIdNumber(course.IDToBoMon.toString());
             if (!category) {
@@ -187,9 +184,9 @@ class SyncToMoodleService {
             }
             const courseData = {
               course_fullname: `${course.TenLopHoc} - ${course.TenMonHoc} - ${course.TenDot}`,
-              course_shortname: course.MaLopHocPhan,
+              course_shortname: course.IDLopHocPhan,
               course_categoryid: category.id,
-              course_idnumber: course.MaLopHocPhan
+              course_idnumber: course.IDLopHocPhan
             };
 
             if (existingCourse) {
@@ -197,7 +194,7 @@ class SyncToMoodleService {
               syncLogger.info('Khóa học đã tồn tại')
               console.log(courseData.course_fullname)
               // Cập nhật course hiện có
-              // await moodleService.updateCourse(existingCourse.id, courseData);
+              await moodleService.updateCourse(existingCourse.id, courseData);
               // Update Sinh Viên, Các thứ,.....
             } else {
               // Tạo course mới
@@ -292,13 +289,14 @@ class SyncToMoodleService {
       for (const course of courses) {
         try {
           // Lấy course trong Moodle
-          const moodleCourse = await moodleService.getCourseByShortname(course.MaLopHocPhan);
+          const moodleCourse = await moodleService.getCourseByShortname(course.IDLopHocPhan);
           if (!moodleCourse) {
             continue;
           }
           // Lấy danh sách đăng ký từ SQL Server
-          const enrollments = await databaseService.getStudentCourseEnrollments(course.MaLopHocPhan);
+          const enrollments = await databaseService.getStudentCourseEnrollments(course.IDLopHocPhan);
           totalEnrollments += enrollments.length;
+
           for (const enrollment of enrollments) {
             try {
               const moodleUser = await moodleService.getUserByIdNumber(enrollment.MaSinhVien);
@@ -357,12 +355,12 @@ class SyncToMoodleService {
       for (const course of courses) {
         try {
           // Lấy course trong Moodle
-          const moodleCourse = await moodleService.getCourseByShortname(course.MaLopHocPhan);
+          const moodleCourse = await moodleService.getCourseByShortname(course.IDLopHocPhan);
           if (!moodleCourse) {
             continue;
           }
           // Lấy danh sách đăng ký giảng viên từ HRM_NUCE database
-          const enrollments = await databaseService.getTeacherCourseEnrollments(course.MaLopHocPhan);
+          const enrollments = await databaseService.getTeacherCourseEnrollments(course.IDLopHocPhan);
           totalEnrollments += enrollments.length;
           for (const enrollment of enrollments) {
             try {
@@ -435,27 +433,28 @@ class SyncToMoodleService {
         teachers: null,
         courses: null,
         enrollments: null,
+        teacherEnrollments: null,
         startTime: new Date(),
         endTime: null,
         success: true,
         totalErrors: 0
       };
 
-      // Đồng bộ theo thứ tự: teachers -> students -> courses -> enrollments
-      try {
-        results.teachers = await this.syncTeachersToMoodle();
-        results.totalErrors += results.teachers.errors;
-      } catch (error) {
-        results.success = false;
-        results.teachers = { success: false, error: error.message };
-      }
-
+      // Đồng bộ theo thứ tự: students -> teachers -> courses -> student enrollments -> teacher enrollments
       try {
         results.students = await this.syncStudentsToMoodle();
         results.totalErrors += results.students.errors;
       } catch (error) {
         results.success = false;
         results.students = { success: false, error: error.message };
+      }
+
+      try {
+        results.teachers = await this.syncTeachersToMoodle();
+        results.totalErrors += results.teachers.errors;
+      } catch (error) {
+        results.success = false;
+        results.teachers = { success: false, error: error.message };
       }
 
       try {
@@ -467,11 +466,19 @@ class SyncToMoodleService {
       }
 
       try {
-        results.enrollments = await this.syncEnrollmentsToMoodle();
+        results.enrollments = await this.syncEnrollmentsStudentToMoodle();
         results.totalErrors += results.enrollments.errors;
       } catch (error) {
         results.success = false;
         results.enrollments = { success: false, error: error.message };
+      }
+
+      try {
+        results.teacherEnrollments = await this.syncTeacherEnrollmentsToMoodle();
+        results.totalErrors += results.teacherEnrollments.errors;
+      } catch (error) {
+        results.success = false;
+        results.teacherEnrollments = { success: false, error: error.message };
       }
 
       results.endTime = new Date();

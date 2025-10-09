@@ -202,7 +202,7 @@ router.get('/data/students', asyncHandler(async (req, res) => {
 
 // Lấy danh sách giảng viên từ SQL Server
 router.get('/data/teachers', asyncHandler(async (req, res) => {
-  const teachers = await databaseGvService.getTeachers();
+  const teachers = await databaseService.getTeachers();
   res.json({
     success: true,
     message: 'Teachers retrieved',

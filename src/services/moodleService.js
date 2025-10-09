@@ -41,12 +41,12 @@ class MoodleService {
   async createUser(userData) {
     try {
       const user = {
-        username: userData.email || `${userData.idnumber}@huce.edu.vn`,
-        firstname: userData.first_name || "",
-        lastname: userData.last_name || "",
+        username: (userData.email || `${userData.idnumber}@huce.edu.vn`).toLowerCase(),
+        firstname: userData.first_name || "Lỗi dữ liệu",
+        lastname: userData.last_name || "Lỗi dữ liệu",
         email: userData.email || `${userData.idnumber}@huce.edu.vn`,
-        city: userData.city || "",
-        idnumber: userData.idnumber || "",
+        city: userData.city || "HN",
+        idnumber: userData.idnumber || `no ${Date.now()}`,
         password: userData.password || 'DefaultPassword123!',
         auth: 'manual'
       };

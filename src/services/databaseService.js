@@ -81,13 +81,13 @@ class DatabaseService {
     INNER JOIN dbo.TKB_LopHocPhan lhp WITH (NOLOCK) ON lhp.Id = dkhp.IDLopHocPhan
     INNER JOIN dbo.TKB_MonHoc mh WITH (NOLOCK) ON mh.Id = lhp.IDMonHoc
     INNER JOIN dbo.TKB_LopHoc lhoc WITH (NOLOCK) ON lhoc.Id = mh.IDLopHoc
-    WHERE lhoc.TenLopHoc = '66CS2'`
+    WHERE lhoc.TenLopHoc LIKE '%66%' `
       const parameters = {};
 
-      if (lastSyncDate) {
-        query += ' AND NgayCapNhat > @lastSyncDate';
-        parameters.lastSyncDate = lastSyncDate;
-      }
+      // if (lastSyncDate) {
+      //   query += ' AND NgayCapNhat > @lastSyncDate';
+      //   parameters.lastSyncDate = lastSyncDate;
+      // }
 
       // query += ' ORDER BY NgayCapNhat DESC';
 
@@ -175,7 +175,7 @@ SELECT
         ON dkhp.IDLopHocPhan = lhp.Id
         AND dkhp.IDTrangThaiDangKy IN (1,2,3)
     WHERE lhp.IsXepLich = 1 
-      AND lhoc.TenLopHoc = '66CS2'
+      AND lhoc.TenLopHoc LIKE '%66%'
 `;
 
       const parameters = {};
@@ -225,7 +225,7 @@ SELECT
         INNER JOIN dbo.DM_GiangVien gv WITH (NOLOCK) ON gv.Id = lhgv.IDGiangVien
         INNER JOIN dbo.TKB_MonHoc mh WITH (NOLOCK) ON mh.Id = lhp.IDMonHoc
         INNER JOIN dbo.TKB_LopHoc lhoc WITH (NOLOCK) ON lhoc.Id = mh.IDLopHoc
-        WHERE lhoc.TenLopHoc = '66CS2'
+        WHERE lhoc.TenLopHoc LIKE '%66%'
 `
       const parameters = {};
 
@@ -264,7 +264,7 @@ SELECT
       `;
       const parameters = {};
       if (courseId) {
-        query += 'AND lhp.MaLopHocPhan = @courseId';
+        query += 'AND lhp.id = @courseId';
         parameters.courseId = courseId;
       }
       const result = await this.executeQuery(query, parameters);
@@ -292,7 +292,7 @@ SELECT
       `;
       const parameters = {};
       if (courseId) {
-        query += 'WHERE lhp.MaLopHocPhan= @courseId';
+        query += 'WHERE lhp.id= @courseId';
         parameters.courseId = courseId;
       }
       const result = await this.executeQuery(query, parameters);
