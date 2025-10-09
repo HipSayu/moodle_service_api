@@ -9,7 +9,7 @@ class SyncToMoodleService {
   constructor() {
     this.lastSyncDate = {};
   }
-
+  //Done
   async syncStudentsToMoodle() {
     try {
       const lastSync = this.lastSyncDate.students;
@@ -28,17 +28,17 @@ class SyncToMoodleService {
               first_name: student.HoDem,
               last_name: student.Ten,
               email: student.Email,
-              city: student.NguyenQuan, 
+              city: student.NguyenQuan,
               idnumber: student.MaSinhVien,
               password: student.MaSinhVien,
             };
 
             if (existingUser) {
-              console.log('user đã tồn tại')
+              console.log(`user đã tồn tại ${userData.first_name} ${userData.last_name}`)
               await moodleService.updateUser(existingUser.id, userData);
             } else {
-              const newUser = await moodleService.createUser(userData);
-              console.log("Tạo user Mới")
+              await moodleService.createUser(userData);
+              console.log(`Tạo user Mới ${userData.first_name} ${userData.last_name}`)
             }
 
             syncCount++;
@@ -69,7 +69,7 @@ class SyncToMoodleService {
       throw error;
     }
   }
-
+  //Done
   async syncTeachersToMoodle() {
     try {
       syncLogger.info('Starting teacher sync to Moodle');
@@ -96,8 +96,6 @@ class SyncToMoodleService {
               idnumber: teacher.MaNhanSu,
               password: teacher.MaNhanSu,
             };
-
-            console.log(userData)
 
             if (existingUser) {
               console.log('-----------------------')
@@ -163,6 +161,7 @@ class SyncToMoodleService {
   }
 
   // Đồng bộ khóa học từ SQL Server sang Moodle
+  //Done
   async syncCoursesToMoodle() {
     try {
       syncLogger.info('Starting course sync to Moodle');
@@ -249,10 +248,10 @@ class SyncToMoodleService {
         } catch (error) {
           errorCount++;
           errors.push({
-            course_code: course.course_code,
+            course_code: course.MaLopHocPhan,
             error: error.message
           });
-          syncLogger.error(`Failed to sync course ${course.course_code}:`, error);
+          syncLogger.error(`Failed to sync course ${course.MaLopHocPhan}:`, error);
         }
       }
 
@@ -279,12 +278,12 @@ class SyncToMoodleService {
   }
 
   // Đồng bộ đăng ký khóa học
-  async syncEnrollmentsToMoodle() {
+  async syncEnrollmentsStudentToMoodle() {
     try {
       syncLogger.info('Starting enrollment sync to Moodle');
 
       const courses = await databaseService.getCourses();
-      const students = await databaseService.getStudents();
+      // const students = await databaseService.getStudents();
       let totalEnrollments = 0;
       let syncCount = 0;
       let errorCount = 0;
@@ -293,31 +292,22 @@ class SyncToMoodleService {
       for (const course of courses) {
         try {
           // Lấy course trong Moodle
-          const moodleCourse = await moodleService.getCourseByShortname(course.course_code);
+          const moodleCourse = await moodleService.getCourseByShortname(course.MaLopHocPhan);
           if (!moodleCourse) {
             continue;
           }
-
           // Lấy danh sách đăng ký từ SQL Server
-          const enrollments = await databaseService.getCourseEnrollments(course.course_id);
+          const enrollments = await databaseService.getStudentCourseEnrollments(course.MaLopHocPhan);
           totalEnrollments += enrollments.length;
-
           for (const enrollment of enrollments) {
             try {
-              // Lấy thông tin student từ SQL Server
-              const student = students.find(s => s.student_id === enrollment.student_id);
+              const moodleUser = await moodleService.getUserByIdNumber(enrollment.MaSinhVien);
+              if (moodleUser) {
+                // Đăng ký student vào course
+                await moodleService.enrollUserToCourse(moodleUser.id, moodleCourse.id, 5, moodleUser, moodleCourse); // 5 = student role
 
-              if (student) {
-                // Tìm user trong Moodle
-                const moodleUser = await moodleService.getUserByUsername(student.student_code);
-
-                if (moodleUser) {
-                  // Đăng ký student vào course
-                  await moodleService.enrollUserToCourse(moodleUser.id, moodleCourse.id, 5); // 5 = student role
-                  syncCount++;
-
-                  syncLogger.debug(`Enrolled student ${student.student_code} to course ${course.course_code}`);
-                }
+                syncCount++;
+                syncLogger.debug(`Enrolled student ${enrollment.HoTenSinhVien} to course ${course.TenMonHoc}`);
               }
             } catch (enrollError) {
               errorCount++;
@@ -328,6 +318,7 @@ class SyncToMoodleService {
               });
             }
           }
+          console.log(`Done_______________________${course.TenMonHoc}`)
         } catch (courseError) {
           syncLogger.error(`Failed to sync enrollments for course ${course.course_code}:`, courseError);
         }
@@ -349,6 +340,65 @@ class SyncToMoodleService {
       };
     } catch (error) {
       syncLogger.error('Enrollment sync to Moodle failed:', error);
+      throw error;
+    }
+  }
+
+  // Đồng bộ đăng ký giảng viên vào khóa học từ SQL Server sang Moodle
+  async syncTeacherEnrollmentsToMoodle() {
+    try {
+      syncLogger.info('Starting teacher enrollment sync to Moodle');
+      const courses = await databaseService.getCourses();
+      let totalEnrollments = 0;
+      let syncCount = 0;
+      let errorCount = 0;
+      const errors = [];
+
+      for (const course of courses) {
+        try {
+          // Lấy course trong Moodle
+          const moodleCourse = await moodleService.getCourseByShortname(course.MaLopHocPhan);
+          if (!moodleCourse) {
+            continue;
+          }
+          // Lấy danh sách đăng ký giảng viên từ HRM_NUCE database
+          const enrollments = await databaseService.getTeacherCourseEnrollments(course.MaLopHocPhan);
+          totalEnrollments += enrollments.length;
+          for (const enrollment of enrollments) {
+            try {
+              const moodleUser = await moodleService.getUserByIdNumber(enrollment.MaGiangVien);
+              if (moodleUser) {
+                // Đăng ký teacher vào course
+                await moodleService.enrollTeacherToCourse(moodleUser.id, moodleCourse.id, 3, moodleUser, moodleCourse); // 3 = teacher role
+
+                syncCount++;
+                syncLogger.debug(`Enrolled teacher ${enrollment.HoTenGiangVien} to course ${course.TenMonHoc}`);
+              }
+            } catch (enrollError) {
+              errorCount++;
+              errors.push({
+                course_code: course.course_code,
+                teacher_id: enrollment.teacher_id,
+                error: enrollError.message
+              });
+            }
+          }
+        } catch (courseError) {
+          syncLogger.error(`Failed to sync teacher enrollments for course ${course.course_code}:`, courseError);
+        }
+      }
+
+      syncLogger.info(`Teacher enrollment sync completed: ${syncCount}/${totalEnrollments} synced, ${errorCount} errors`);
+
+      return {
+        success: true,
+        total: totalEnrollments,
+        synced: syncCount,
+        errors: errorCount,
+        errorDetails: errors.slice(0, 10)
+      };
+    } catch (error) {
+      syncLogger.error('Teacher enrollment sync to Moodle failed:', error);
       throw error;
     }
   }

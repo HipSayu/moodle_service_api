@@ -67,11 +67,6 @@ class DatabaseService {
   // Lấy danh sách sinh viên
   async getStudents(lastSyncDate = null) {
     try {
-      // let query = `
-      //  SELECT TOP 10
-      //  *
-      //  FROM DT_SinhVien
-      // `;
       let query = `SELECT DISTINCT
     sv.MaSinhVien,
     sv.HoDem,
@@ -79,14 +74,14 @@ class DatabaseService {
     sv.NguyenQuan,
     sv.HoDem + ' ' + sv.Ten AS HoTenSinhVien,
     sv.Email,
+	sv.NgayCapNhat,
     lhoc.TenLopHoc
-FROM dbo.DT_DangKyHocPhan dkhp WITH (NOLOCK)
-INNER JOIN dbo.DT_SinhVien sv WITH (NOLOCK) ON sv.Id = dkhp.IDSinhVien
-INNER JOIN dbo.TKB_LopHocPhan lhp WITH (NOLOCK) ON lhp.Id = dkhp.IDLopHocPhan
-INNER JOIN dbo.TKB_MonHoc mh WITH (NOLOCK) ON mh.Id = lhp.IDMonHoc
-INNER JOIN dbo.TKB_LopHoc lhoc WITH (NOLOCK) ON lhoc.Id = mh.IDLopHoc
-WHERE lhoc.TenLopHoc = '66CS2'
-ORDER BY sv.MaSinhVien;`
+    FROM dbo.DT_DangKyHocPhan dkhp WITH (NOLOCK)
+    INNER JOIN dbo.DT_SinhVien sv WITH (NOLOCK) ON sv.Id = dkhp.IDSinhVien
+    INNER JOIN dbo.TKB_LopHocPhan lhp WITH (NOLOCK) ON lhp.Id = dkhp.IDLopHocPhan
+    INNER JOIN dbo.TKB_MonHoc mh WITH (NOLOCK) ON mh.Id = lhp.IDMonHoc
+    INNER JOIN dbo.TKB_LopHoc lhoc WITH (NOLOCK) ON lhoc.Id = mh.IDLopHoc
+    WHERE lhoc.TenLopHoc = '66CS2'`
       const parameters = {};
 
       if (lastSyncDate) {
@@ -151,7 +146,7 @@ ORDER BY sv.MaSinhVien;`
   async getCourses(lastSyncDate = null) {
     try {
       let query = `
-       SELECT
+SELECT
     lhp.Id AS IDLopHocPhan,
     lhp.MaLopHocPhan,
     mh.TenMonHoc,
@@ -161,9 +156,9 @@ ORDER BY sv.MaSinhVien;`
     lhoc.TenLopHoc,
     lhoc.MaLopHoc,
     d.TenDot,
-	mh.IDToBoMon,
-	MAX(lhoc.NgayCapNhat) AS NgayCapNhatLopHoc,
-	MAX(dkhp.NgayCapNhat) AS NgayCapNhatDangKyHocPhan,
+    mh.IDToBoMon,
+    MAX(lhoc.NgayCapNhat) AS NgayCapNhatLopHoc,
+    MAX(dkhp.NgayCapNhat) AS NgayCapNhatDangKyHocPhan,
     COUNT(dkhp.IDSinhVien) AS SoLuongSinhVien,
     CASE
         WHEN mh.SoTietThucHanh > mh.SoTietLyThuyet THEN N'Lớp đồ án'
@@ -171,26 +166,38 @@ ORDER BY sv.MaSinhVien;`
     END AS LoaiLopHoc,
     bm.TenBoMon,
     bm.TenPhongBan
-FROM dbo.TKB_LopHocPhan lhp WITH (NOLOCK)
-INNER JOIN dbo.TKB_MonHoc mh WITH (NOLOCK) ON mh.Id = lhp.IDMonHoc
-INNER JOIN dbo.TKB_LopHoc lhoc WITH (NOLOCK) ON lhoc.Id = mh.IDLopHoc
-INNER JOIN dbo.DM_Dot d WITH (NOLOCK) ON lhoc.IDDot = d.Id
-INNER JOIN dbo.TMP_DsBoMonKhoa bm WITH (NOLOCK) ON mh.IDToBoMon = bm.IDBoMon
-LEFT JOIN dbo.DT_DangKyHocPhan dkhp WITH (NOLOCK) ON dkhp.IDLopHocPhan = lhp.Id
-    AND dkhp.IDTrangThaiDangKy IN (1,2,3)
-WHERE lhp.IsXepLich = 1 AND lhoc.TenLopHoc='66CS2'
-GROUP BY lhp.Id, lhp.MaLopHocPhan, mh.TenMonHoc, lhoc.TenLopHoc, lhoc.MaLopHoc,mh.IDLoaiMonHoc,d.TenDot,mh.SoTietThucHanh,mh.SoTietLyThuyet, mh.IDToBoMon, bm.TenBoMon, bm.TenPhongBan
-ORDER BY lhoc.TenLopHoc, lhp.MaLopHocPhan;
-      `;
+    FROM dbo.TKB_LopHocPhan lhp WITH (NOLOCK)
+    INNER JOIN dbo.TKB_MonHoc mh WITH (NOLOCK) ON mh.Id = lhp.IDMonHoc
+    INNER JOIN dbo.TKB_LopHoc lhoc WITH (NOLOCK) ON lhoc.Id = mh.IDLopHoc
+    INNER JOIN dbo.DM_Dot d WITH (NOLOCK) ON lhoc.IDDot = d.Id
+    INNER JOIN dbo.TMP_DsBoMonKhoa bm WITH (NOLOCK) ON mh.IDToBoMon = bm.IDBoMon
+    LEFT JOIN dbo.DT_DangKyHocPhan dkhp WITH (NOLOCK) 
+        ON dkhp.IDLopHocPhan = lhp.Id
+        AND dkhp.IDTrangThaiDangKy IN (1,2,3)
+    WHERE lhp.IsXepLich = 1 
+      AND lhoc.TenLopHoc = '66CS2'
+`;
 
       const parameters = {};
 
       if (lastSyncDate) {
-        query += ' AND (NgayCapNhatLopHoc > @lastSyncDate OR NgayCapNhatDangKyHocPhan > @lastSyncDate )';
+        query += `
+        AND (
+            lhoc.NgayCapNhat > @lastSyncDate 
+            OR dkhp.NgayCapNhat > @lastSyncDate
+        )`;
         parameters.lastSyncDate = lastSyncDate;
       }
 
-      // query += ' ORDER BY updated_at DESC';
+      query += `
+      GROUP BY 
+        lhp.Id, lhp.MaLopHocPhan, mh.TenMonHoc, lhoc.TenLopHoc, 
+        lhoc.MaLopHoc, mh.IDLoaiMonHoc, d.TenDot, 
+        mh.SoTietThucHanh, mh.SoTietLyThuyet, mh.IDToBoMon, 
+        bm.TenBoMon, bm.TenPhongBan
+      ORDER BY lhoc.TenLopHoc, lhp.MaLopHocPhan;
+      `;
+
 
       const result = await this.executeQuery(query, parameters);
       return result.recordset;
@@ -208,18 +215,17 @@ ORDER BY lhoc.TenLopHoc, lhp.MaLopHocPhan;
       // `;
 
       let query = `SELECT DISTINCT 
-       gv.MaGiangVien AS MaNhanSu, gv.HoDem + ' ' + gv.Ten AS HoTenGiangVien, gv.Email,gv.Ten,gv.HoDem,
+       gv.MaGiangVien AS MaNhanSu, gv.HoDem + ' ' + gv.Ten AS HoTenGiangVien, gv.Email,gv.Ten,gv.NgayCapNhat,gv.HoDem,
        CASE WHEN lhgv.IsTroGiang = 1 THEN 'Trợ giảng' ELSE 'Giảng viên chính' END AS VaiTro
-FROM dbo.TKB_LopHocPhan lhp WITH (NOLOCK)
-INNER JOIN dbo.TKB_DanhSachLopXepLichHoc ds WITH (NOLOCK) ON ds.IDLopHocPhan = lhp.Id
-INNER JOIN dbo.TKB_LopXepLichHoc lxl WITH (NOLOCK) ON lxl.Id = ds.IDLopXepLichHoc
-INNER JOIN dbo.TKB_LichHoc lh WITH (NOLOCK) ON lh.IDLopXepLichHoc = lxl.Id
-INNER JOIN dbo.TKB_LichHocGiangVien lhgv WITH (NOLOCK) ON lhgv.IDLichHoc = lh.Id
-INNER JOIN dbo.DM_GiangVien gv WITH (NOLOCK) ON gv.Id = lhgv.IDGiangVien
-INNER JOIN dbo.TKB_MonHoc mh WITH (NOLOCK) ON mh.Id = lhp.IDMonHoc
-INNER JOIN dbo.TKB_LopHoc lhoc WITH (NOLOCK) ON lhoc.Id = mh.IDLopHoc
-WHERE lhoc.TenLopHoc = '66CS2'
-
+        FROM dbo.TKB_LopHocPhan lhp WITH (NOLOCK)
+        INNER JOIN dbo.TKB_DanhSachLopXepLichHoc ds WITH (NOLOCK) ON ds.IDLopHocPhan = lhp.Id
+        INNER JOIN dbo.TKB_LopXepLichHoc lxl WITH (NOLOCK) ON lxl.Id = ds.IDLopXepLichHoc
+        INNER JOIN dbo.TKB_LichHoc lh WITH (NOLOCK) ON lh.IDLopXepLichHoc = lxl.Id
+        INNER JOIN dbo.TKB_LichHocGiangVien lhgv WITH (NOLOCK) ON lhgv.IDLichHoc = lh.Id
+        INNER JOIN dbo.DM_GiangVien gv WITH (NOLOCK) ON gv.Id = lhgv.IDGiangVien
+        INNER JOIN dbo.TKB_MonHoc mh WITH (NOLOCK) ON mh.Id = lhp.IDMonHoc
+        INNER JOIN dbo.TKB_LopHoc lhoc WITH (NOLOCK) ON lhoc.Id = mh.IDLopHoc
+        WHERE lhoc.TenLopHoc = '66CS2'
 `
       const parameters = {};
 
@@ -239,26 +245,56 @@ WHERE lhoc.TenLopHoc = '66CS2'
   }
 
   // Lấy danh sách đăng ký khóa học
-  async getCourseEnrollments(courseId = null) {
+  async getStudentCourseEnrollments(courseId = null) {
     try {
       let query = `
-        SELECT 
-          enrollment_id,
-          student_id,
-          course_id,
-          enrollment_date,
-          status
-        FROM Course_Enrollments 
-        WHERE status = 'enrolled'
+       SELECT DISTINCT
+    lhp.MaLopHocPhan,
+	  lhoc.TenLopHoc,
+    mh.TenMonHoc,
+    sv.MaSinhVien,
+    sv.HoDem + ' ' + sv.Ten AS HoTenSinhVien,
+    sv.Email
+    FROM dbo.DT_DangKyHocPhan dkhp WITH (NOLOCK)
+    INNER JOIN dbo.DT_SinhVien sv WITH (NOLOCK) ON sv.Id = dkhp.IDSinhVien
+    INNER JOIN dbo.TKB_LopHocPhan lhp WITH (NOLOCK) ON lhp.Id = dkhp.IDLopHocPhan
+    INNER JOIN dbo.TKB_MonHoc mh WITH (NOLOCK) ON mh.Id = lhp.IDMonHoc
+    INNER JOIN dbo.TKB_LopHoc lhoc WITH (NOLOCK) ON lhoc.Id = mh.IDLopHoc
+    WHERE dkhp.IDTrangThaiDangKy IN (1,2,3)
       `;
-
       const parameters = {};
-
       if (courseId) {
-        query += ' AND course_id = @courseId';
+        query += 'AND lhp.MaLopHocPhan = @courseId';
         parameters.courseId = courseId;
       }
+      const result = await this.executeQuery(query, parameters);
+      return result.recordset;
+    } catch (error) {
+      logger.error('Error getting course enrollments:', error);
+      throw error;
+    }
+  }
 
+  async getTeacherCourseEnrollments(courseId = null) {
+    try {
+      let query = `
+       SELECT DISTINCT lhp.MaLopHocPhan, lhoc.TenLopHoc, mh.TenMonHoc,
+       gv.MaGiangVien, gv.HoDem + ' ' + gv.Ten AS HoTenGiangVien, gv.Email,
+       CASE WHEN lhgv.IsTroGiang = 1 THEN 'Trợ giảng' ELSE 'Giảng viên chính' END AS VaiTro
+        FROM dbo.TKB_LopHocPhan lhp WITH (NOLOCK)
+        INNER JOIN dbo.TKB_DanhSachLopXepLichHoc ds WITH (NOLOCK) ON ds.IDLopHocPhan = lhp.Id
+        INNER JOIN dbo.TKB_LopXepLichHoc lxl WITH (NOLOCK) ON lxl.Id = ds.IDLopXepLichHoc
+        INNER JOIN dbo.TKB_LichHoc lh WITH (NOLOCK) ON lh.IDLopXepLichHoc = lxl.Id
+        INNER JOIN dbo.TKB_LichHocGiangVien lhgv WITH (NOLOCK) ON lhgv.IDLichHoc = lh.Id
+        INNER JOIN dbo.DM_GiangVien gv WITH (NOLOCK) ON gv.Id = lhgv.IDGiangVien
+        INNER JOIN dbo.TKB_MonHoc mh WITH (NOLOCK) ON mh.Id = lhp.IDMonHoc
+        INNER JOIN dbo.TKB_LopHoc lhoc WITH (NOLOCK) ON lhoc.Id = mh.IDLopHoc
+      `;
+      const parameters = {};
+      if (courseId) {
+        query += 'WHERE lhp.MaLopHocPhan= @courseId';
+        parameters.courseId = courseId;
+      }
       const result = await this.executeQuery(query, parameters);
       return result.recordset;
     } catch (error) {
@@ -295,7 +331,6 @@ WHERE lhoc.TenLopHoc = '66CS2'
               INSERT (student_id, course_id, assignment_name, grade, max_grade, grade_date, moodle_grade_id, created_at, updated_at)
               VALUES (source.student_id, source.course_id, source.assignment_name, source.grade, source.max_grade, source.grade_date, source.moodle_grade_id, GETDATE(), GETDATE());
           `;
-
           request.input('student_id', sql.Int, grade.student_id);
           request.input('course_id', sql.Int, grade.course_id);
           request.input('assignment_name', sql.NVarChar, grade.assignment_name);

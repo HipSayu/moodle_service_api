@@ -100,11 +100,21 @@ router.post('/sync/courses', asyncHandler(async (req, res) => {
 }));
 
 // Đồng bộ đăng ký khóa học từ SQL Server sang Moodle
-router.post('/sync/enrollments', asyncHandler(async (req, res) => {
-  const result = await syncToMoodleService.syncEnrollmentsToMoodle();
+router.post('/sync/enrollments-students', asyncHandler(async (req, res) => {
+  const result = await syncToMoodleService.syncEnrollmentsStudentToMoodle();
   res.json({
     success: true,
     message: 'Enrollment sync completed',
+    data: result
+  });
+}));
+
+// Đồng bộ đăng ký giảng viên vào khóa học từ SQL Server sang Moodle
+router.post('/sync/enrollments-teachers', asyncHandler(async (req, res) => {
+  const result = await syncToMoodleService.syncTeacherEnrollmentsToMoodle();
+  res.json({
+    success: true,
+    message: 'Teacher enrollment sync completed',
     data: result
   });
 }));

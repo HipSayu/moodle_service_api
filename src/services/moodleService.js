@@ -26,7 +26,7 @@ class MoodleService {
         timeout: 30000
       });
 
-      if (response.data.exception) {
+      if (response.data && response.data.exception) {
         throw new Error(`Moodle API Error: ${response.data.message}`);
       }
 
@@ -41,12 +41,12 @@ class MoodleService {
   async createUser(userData) {
     try {
       const user = {
-        username: userData.email,
-        firstname: userData.first_name,
-        lastname: userData.last_name,
-        email: userData.email,
+        username: userData.email || `${userData.idnumber}@huce.edu.vn`,
+        firstname: userData.first_name || "",
+        lastname: userData.last_name || "",
+        email: userData.email || `${userData.idnumber}@huce.edu.vn`,
         city: userData.city || "",
-        idnumber: userData.idnumber,
+        idnumber: userData.idnumber || "",
         password: userData.password || 'DefaultPassword123!',
         auth: 'manual'
       };
@@ -79,13 +79,13 @@ class MoodleService {
     try {
       const updateData = {
         'users[0][id]': userId,
-        'users[0][username]': userData.username,
+        // 'users[0][username]': userData.username,
         'users[0][firstname]': userData.first_name,
         'users[0][lastname]': userData.last_name,
-        'users[0][email]': userData.email,
+        // 'users[0][email]': userData.email,
         'users[0][auth]': userData.auth || 'manual',
-        'users[0][idnumber]': userData.idnumber,
-        'users[0][city]': userData.city,
+        // 'users[0][idnumber]': userData.idnumber,
+        'users[0][city]': userData.city || "",
       };
 
       await this.callWebService('core_user_update_users', updateData);
@@ -93,6 +93,20 @@ class MoodleService {
       return true;
     } catch (error) {
       logger.error('Error updating user in Moodle:', error);
+      throw error;
+    }
+  }
+
+  // Xóa user trong Moodle
+  async deleteUser(userId) {
+    try {
+      await this.callWebService('core_user_delete_users', {
+        'userids[0]': userId
+      });
+      logger.info(`Deleted user in Moodle: ID ${userId}`);
+      return true;
+    } catch (error) {
+      logger.error('Error deleting user in Moodle:', error);
       throw error;
     }
   }
@@ -134,6 +148,16 @@ class MoodleService {
     }
   }
 
+  // Lấy danh sách users từ Moodle
+  async getUsers() {
+    try {
+      const result = await this.callWebService('core_user_get_users', {});
+      return result.users || [];
+    } catch (error) {
+      logger.error('Error getting users:', error);
+      throw error;
+    }
+  }
 
   // Tạo category trong Moodle
   async createCategory(categoryData) {
@@ -229,6 +253,20 @@ class MoodleService {
     }
   }
 
+  // Xóa course trong Moodle
+  async deleteCourse(courseId) {
+    try {
+      await this.callWebService('core_course_delete_courses', {
+        'courseids[0]': courseId
+      });
+      logger.info(`Deleted course in Moodle: ID ${courseId}`);
+      return true;
+    } catch (error) {
+      logger.error('Error deleting course in Moodle:', error);
+      throw error;
+    }
+  }
+
   // Tìm course theo shortname
   async getCourseByShortname(shortname) {
     try {
@@ -248,8 +286,19 @@ class MoodleService {
     }
   }
 
+  // Lấy danh sách courses từ Moodle
+  async getCourses() {
+    try {
+      const result = await this.callWebService('core_course_get_courses', {});
+      return result || [];
+    } catch (error) {
+      logger.error('Error getting courses:', error);
+      throw error;
+    }
+  }
+
   // Đăng ký user vào course
-  async enrollUserToCourse(userId, courseId, roleId = 5) {
+  async enrollUserToCourse(userId, courseId, roleId = 5, moodleUser, moodleCourse) {
     try {
       // roleId = 5 is student role by default
       const result = await this.callWebService('enrol_manual_enrol_users', {
@@ -258,10 +307,44 @@ class MoodleService {
         'enrolments[0][courseid]': courseId
       });
 
-      logger.info(`Enrolled user ${userId} to course ${courseId} with role ${roleId}`);
+      logger.info(`Sinh Viên ${moodleUser.fullname} Đã tham gia ${moodleCourse.fullname} with role ${roleId}`);
       return true;
     } catch (error) {
       logger.error('Error enrolling user to course:', error);
+      throw error;
+    }
+  }
+
+  // Đăng ký teacher vào course
+  async enrollTeacherToCourse(userId, courseId, roleId = 3, moodleUser, moodleCourse) {
+    try {
+      // roleId = 3 is editing teacher role by default
+      const result = await this.callWebService('enrol_manual_enrol_users', {
+        'enrolments[0][roleid]': roleId,
+        'enrolments[0][userid]': userId,
+        'enrolments[0][courseid]': courseId
+      });
+
+      logger.info(`Giảng Viên ${moodleUser.fullname} Đã tham gia ${moodleCourse.fullname} with role ${roleId}`);
+      return true;
+    } catch (error) {
+      logger.error('Error enrolling teacher to course:', error);
+      throw error;
+    }
+  }
+
+  // Hủy đăng ký user khỏi course
+  async unenrollUserFromCourse(userId, courseId) {
+    try {
+      await this.callWebService('enrol_manual_unenrol_users', {
+        'enrolments[0][userid]': userId,
+        'enrolments[0][courseid]': courseId
+      });
+
+      logger.info(`Unenrolled user ${userId} from course ${courseId}`);
+      return true;
+    } catch (error) {
+      logger.error('Error unenrolling user from course:', error);
       throw error;
     }
   }
