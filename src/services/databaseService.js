@@ -81,7 +81,7 @@ class DatabaseService {
     INNER JOIN dbo.TKB_LopHocPhan lhp WITH (NOLOCK) ON lhp.Id = dkhp.IDLopHocPhan
     INNER JOIN dbo.TKB_MonHoc mh WITH (NOLOCK) ON mh.Id = lhp.IDMonHoc
     INNER JOIN dbo.TKB_LopHoc lhoc WITH (NOLOCK) ON lhoc.Id = mh.IDLopHoc
-    WHERE lhoc.TenLopHoc LIKE '%66%' `
+    WHERE lhoc.TenLopHoc LIKE '%66CS2%' `
       const parameters = {};
 
       if (lastSyncDate) {
@@ -175,7 +175,7 @@ SELECT
         ON dkhp.IDLopHocPhan = lhp.Id
         AND dkhp.IDTrangThaiDangKy IN (1,2,3)
     WHERE lhp.IsXepLich = 1 
-      AND lhoc.TenLopHoc LIKE '%66%'
+      AND lhoc.TenLopHoc LIKE '%66CS2%'
 `;
 
       const parameters = {};
@@ -225,7 +225,7 @@ SELECT
         INNER JOIN dbo.DM_GiangVien gv WITH (NOLOCK) ON gv.Id = lhgv.IDGiangVien
         INNER JOIN dbo.TKB_MonHoc mh WITH (NOLOCK) ON mh.Id = lhp.IDMonHoc
         INNER JOIN dbo.TKB_LopHoc lhoc WITH (NOLOCK) ON lhoc.Id = mh.IDLopHoc
-        WHERE lhoc.TenLopHoc LIKE '%66%'
+        WHERE lhoc.TenLopHoc LIKE '%66CS2%'
 `
       const parameters = {};
 

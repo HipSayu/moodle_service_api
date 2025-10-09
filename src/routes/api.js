@@ -4,7 +4,6 @@ import syncToMoodleService from '../services/syncToMoodleService.js';
 import syncFromMoodleService from '../services/syncFromMoodleService.js';
 import databaseService from '../services/databaseService.js';
 import moodleService from '../services/moodleService.js';
-import databaseGvService from '../services/databaseGvService.js';
 const router = express.Router();
 
 // Health check endpoint
@@ -25,11 +24,6 @@ router.get('/health', asyncHandler(async (req, res) => {
     health.services.database = false;
   }
 
-  try {
-    health.services.databaseGv = await databaseGvService.checkConnection();
-  } catch (error) {
-    health.services.databaseGv = false;
-  }
 
   try {
     health.services.moodle = await moodleService.checkConnection();
@@ -222,15 +216,6 @@ router.get('/data/courses', asyncHandler(async (req, res) => {
   });
 }));
 
-// Lấy danh sách giảng viên từ HRM_NUCE database
-router.get('/data/teachers-hrm', asyncHandler(async (req, res) => {
-  const teachers = await databaseGvService.getTeachers();
-  res.json({
-    success: true,
-    message: 'Teachers from HRM_NUCE retrieved',
-    data: teachers,
-    count: teachers.length
-  });
-}));
+
 
 export default router;

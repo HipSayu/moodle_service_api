@@ -9,7 +9,7 @@ import {
 import apiRoutes from './routes/api.js';
 import schedulerService from './services/schedulerService.js';
 import databaseService from './services/databaseService.js';
-import databaseGvService from './services/databaseGvService.js';
+
 
 class App {
   constructor() {
@@ -95,15 +95,6 @@ class App {
     }
   }
 
-  async initializeDatabaseGV() {
-    try {
-      await databaseGvService.connect();
-      logger.info('Database GV connection established');
-    } catch (error) {
-      logger.error('Failed to connect to database GV:', error);
-      throw error;
-    }
-  }
 
   // Khởi tạo scheduler
   async initializeScheduler() {
@@ -136,9 +127,6 @@ class App {
 
       // Initialize database
       await this.initializeDatabase();
-
-      await this.initializeDatabaseGV();
-
       // Initialize scheduler
       await this.initializeScheduler();
 
@@ -184,9 +172,7 @@ class App {
         await databaseService.disconnect();
       }
 
-       if (databaseGvService) {
-        await databaseGvService.disconnect();
-      }
+      
 
       // Close server
       if (this.server) {
