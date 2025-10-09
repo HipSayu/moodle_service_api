@@ -1,5 +1,4 @@
 import databaseService from './databaseService.js';
-import databaseGvService from './databaseGvService.js';
 import moodleService from './moodleService.js';
 import { logger, syncLogger } from '../utils/logger.js';
 import { retryOperation } from '../utils/errorHandler.js';
@@ -120,7 +119,7 @@ class SyncToMoodleService {
       syncLogger.info('Starting teacher sync to Moodle');
 
       const lastSync = this.lastSyncDate.teachers;
-      const teachers = await databaseGvService.getTeachers(lastSync);
+      const teachers = await databaseService.getTeachers(lastSync);
 
       let syncCount = 0;
       let errorCount = 0;
