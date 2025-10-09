@@ -74,7 +74,7 @@ class DatabaseService {
     sv.NguyenQuan,
     sv.HoDem + ' ' + sv.Ten AS HoTenSinhVien,
     sv.Email,
-	sv.NgayCapNhat,
+	  sv.NgayCapNhat AS DateUpdateSV,
     lhoc.TenLopHoc
     FROM dbo.DT_DangKyHocPhan dkhp WITH (NOLOCK)
     INNER JOIN dbo.DT_SinhVien sv WITH (NOLOCK) ON sv.Id = dkhp.IDSinhVien
@@ -85,7 +85,7 @@ class DatabaseService {
       const parameters = {};
 
       if (lastSyncDate) {
-        query += ' AND NgayCapNhat > @lastSyncDate';
+        query += ' AND sv.NgayCapNhat > @lastSyncDate';
         parameters.lastSyncDate = lastSyncDate;
       }
 
@@ -157,9 +157,7 @@ SELECT
     lhoc.MaLopHoc,
     d.TenDot,
     mh.IDToBoMon,
-    MAX(lhoc.NgayCapNhat) AS NgayCapNhatLopHoc,
-    MAX(dkhp.NgayCapNhat) AS NgayCapNhatDangKyHocPhan,
-    COUNT(dkhp.IDSinhVien) AS SoLuongSinhVien,
+    lhoc.NgayCapNhat AS DateUpdateCourse,
     CASE
         WHEN mh.SoTietThucHanh > mh.SoTietLyThuyet THEN N'Lớp đồ án'
         ELSE N'Lớp lý thuyết'
@@ -179,13 +177,11 @@ SELECT
 `;
 
       const parameters = {};
-
       if (lastSyncDate) {
         query += `
-        AND (
+        AND 
             lhoc.NgayCapNhat > @lastSyncDate 
-            OR dkhp.NgayCapNhat > @lastSyncDate
-        )`;
+        `;
         parameters.lastSyncDate = lastSyncDate;
       }
 
@@ -194,10 +190,9 @@ SELECT
         lhp.Id, lhp.MaLopHocPhan, mh.TenMonHoc, lhoc.TenLopHoc, 
         lhoc.MaLopHoc, mh.IDLoaiMonHoc, d.TenDot, 
         mh.SoTietThucHanh, mh.SoTietLyThuyet, mh.IDToBoMon, 
-        bm.TenBoMon, bm.TenPhongBan
+        bm.TenBoMon, bm.TenPhongBan,lhoc.NgayCapNhat
       ORDER BY lhoc.TenLopHoc, lhp.MaLopHocPhan;
       `;
-
 
       const result = await this.executeQuery(query, parameters);
       return result.recordset;
@@ -215,7 +210,7 @@ SELECT
       // `;
 
       let query = `SELECT DISTINCT 
-       gv.MaGiangVien AS MaNhanSu, gv.HoDem + ' ' + gv.Ten AS HoTenGiangVien, gv.Email,gv.Ten,gv.NgayCapNhat,gv.HoDem,
+       gv.MaGiangVien AS MaNhanSu, gv.HoDem + ' ' + gv.Ten AS HoTenGiangVien, gv.Email,gv.Ten,gv.NgayCapNhat AS DateUpdateTeacher,gv.HoDem,
        CASE WHEN lhgv.IsTroGiang = 1 THEN 'Trợ giảng' ELSE 'Giảng viên chính' END AS VaiTro
         FROM dbo.TKB_LopHocPhan lhp WITH (NOLOCK)
         INNER JOIN dbo.TKB_DanhSachLopXepLichHoc ds WITH (NOLOCK) ON ds.IDLopHocPhan = lhp.Id
@@ -230,7 +225,7 @@ SELECT
       const parameters = {};
 
       if (lastSyncDate) {
-        query += ' AND NgayCapNhat > @lastSyncDate';
+        query += ' AND gv.NgayCapNhat > @lastSyncDate';
         parameters.lastSyncDate = lastSyncDate;
       }
 
@@ -245,7 +240,7 @@ SELECT
   }
 
   // Lấy danh sách đăng ký khóa học
-  async getStudentCourseEnrollments(courseId = null, lastSyncDate = null) {
+  async getStudentCourseEnrollments(courseId = null) {
     try {
       let query = `
        SELECT DISTINCT
@@ -254,8 +249,7 @@ SELECT
     mh.TenMonHoc,
     sv.MaSinhVien,
     sv.HoDem + ' ' + sv.Ten AS HoTenSinhVien,
-    sv.Email,
-    lhp.NgayCapNhat
+    sv.Email
     FROM dbo.DT_DangKyHocPhan dkhp WITH (NOLOCK)
     INNER JOIN dbo.DT_SinhVien sv WITH (NOLOCK) ON sv.Id = dkhp.IDSinhVien
     INNER JOIN dbo.TKB_LopHocPhan lhp WITH (NOLOCK) ON lhp.Id = dkhp.IDLopHocPhan
@@ -265,12 +259,8 @@ SELECT
       `;
       const parameters = {};
       if (courseId) {
-        query += 'AND lhp.id = @courseId ';
+        query += 'AND lhp.id = @courseId';
         parameters.courseId = courseId;
-      }
-      if (lastSyncDate) {
-        query += 'AND lhp.NgayCapNhat > @lastSyncDate ';
-        parameters.lastSyncDate = lastSyncDate;
       }
       const result = await this.executeQuery(query, parameters);
       return result.recordset;
@@ -280,11 +270,11 @@ SELECT
     }
   }
 
-  async getTeacherCourseEnrollments(courseId = null, lastSyncDate = null) {
+  async getTeacherCourseEnrollments(courseId = null) {
     try {
       let query = `
        SELECT DISTINCT lhp.MaLopHocPhan, lhoc.TenLopHoc, mh.TenMonHoc,
-       gv.MaGiangVien, gv.HoDem + ' ' + gv.Ten AS HoTenGiangVien, gv.Email,lhp.NgayCapNhat,
+       gv.MaGiangVien, gv.HoDem + ' ' + gv.Ten AS HoTenGiangVien, gv.Email,
        CASE WHEN lhgv.IsTroGiang = 1 THEN 'Trợ giảng' ELSE 'Giảng viên chính' END AS VaiTro
         FROM dbo.TKB_LopHocPhan lhp WITH (NOLOCK)
         INNER JOIN dbo.TKB_DanhSachLopXepLichHoc ds WITH (NOLOCK) ON ds.IDLopHocPhan = lhp.Id
@@ -297,12 +287,8 @@ SELECT
       `;
       const parameters = {};
       if (courseId) {
-        query += 'WHERE lhp.id= @courseId ';
+        query += 'WHERE lhp.id= @courseId';
         parameters.courseId = courseId;
-      }
-      if (lastSyncDate) {
-        query += (courseId ? 'AND ' : 'WHERE ') + 'lhp.NgayCapNhat > @lastSyncDate ';
-        parameters.lastSyncDate = lastSyncDate;
       }
       const result = await this.executeQuery(query, parameters);
       return result.recordset;
