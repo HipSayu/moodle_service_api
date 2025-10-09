@@ -1,0 +1,7 @@
+{
+  "ignore": [
+    "logs/*",
+    "lastSync.json"
+  ],
+  "ext": "js,json"
+}
