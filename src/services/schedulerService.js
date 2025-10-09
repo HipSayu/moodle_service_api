@@ -18,41 +18,19 @@ class SchedulerService {
     }
 
     try {
-      // Job đồng bộ dữ liệu từ SQL Server sang Moodle (chạy mỗi giờ)
-      const syncToMoodleJob = new CronJob(
-        `0 0 */${config.sync.intervalMinutes} * * *`,
-        () => this.runSyncToMoodle(),
-        null,
-        false,
-        'Asia/Ho_Chi_Minh'
-      );
-
-      // Job đồng bộ điểm từ Moodle về SQL Server (chạy mỗi 30 phút)
-      const syncFromMoodleJob = new CronJob(
-        '0 */30 * * * *',
-        () => this.runSyncFromMoodle(),
-        null,
-        false,
-        'Asia/Ho_Chi_Minh'
-      );
-
-      // Job backup và maintenance (chạy lúc 2h sáng hàng ngày)
-      const maintenanceJob = new CronJob(
+      // Job đồng bộ full data từ SQL Server sang Moodle (chạy mỗi 24 giờ lúc 2h sáng)
+      const syncAllToMoodleJob = new CronJob(
         '0 0 2 * * *',
-        () => this.runMaintenance(),
+        () => this.runSyncAllToMoodle(),
         null,
         false,
         'Asia/Ho_Chi_Minh'
       );
 
-      this.jobs.set('syncToMoodle', syncToMoodleJob);
-      this.jobs.set('syncFromMoodle', syncFromMoodleJob);
-      this.jobs.set('maintenance', maintenanceJob);
+      this.jobs.set('syncAllToMoodle', syncAllToMoodleJob);
 
       logger.info('Scheduler jobs initialized', {
-        syncToMoodleInterval: `${config.sync.intervalMinutes} minutes`,
-        syncFromMoodleInterval: '30 minutes',
-        maintenanceTime: '2:00 AM daily'
+        syncAllToMoodleTime: '2:00 AM daily'
       });
     } catch (error) {
       logger.error('Failed to initialize scheduler:', error);
@@ -61,7 +39,7 @@ class SchedulerService {
   }
 
   // Bắt đầu tất cả scheduled jobs
-  start() {
+  async start() {
     if (this.isRunning) {
       logger.warn('Scheduler is already running');
       return;
@@ -75,6 +53,11 @@ class SchedulerService {
 
       this.isRunning = true;
       logger.info('Scheduler started successfully');
+
+      // Chạy sync ngay lập tức khi start
+      if (!this.isCurrentlyRunning('syncAllToMoodle')) {
+        await this.runSyncAllToMoodle();
+      }
     } catch (error) {
       logger.error('Failed to start scheduler:', error);
       throw error;
@@ -99,83 +82,6 @@ class SchedulerService {
     } catch (error) {
       logger.error('Failed to stop scheduler:', error);
       throw error;
-    }
-  }
-
-  // Chạy đồng bộ từ SQL Server sang Moodle
-  async runSyncToMoodle() {
-    if (this.isCurrentlyRunning('syncToMoodle')) {
-      syncLogger.warn('Sync to Moodle is already running, skipping...');
-      return;
-    }
-
-    this.setRunningFlag('syncToMoodle', true);
-    
-    try {
-      syncLogger.info('Starting scheduled sync to Moodle');
-      
-      const result = await syncToMoodleService.syncAllToMoodle();
-      
-      syncLogger.info('Scheduled sync to Moodle completed successfully', {
-        duration: result.duration,
-        totalErrors: result.totalErrors
-      });
-
-      // Gửi thông báo nếu có lỗi
-      if (result.totalErrors > 0) {
-        this.notifyErrors('Sync to Moodle', result);
-      }
-    } catch (error) {
-      syncLogger.error('Scheduled sync to Moodle failed:', error);
-      this.notifyErrors('Sync to Moodle', { error: error.message });
-    } finally {
-      this.setRunningFlag('syncToMoodle', false);
-    }
-  }
-
-  // Chạy đồng bộ từ Moodle về SQL Server
-  async runSyncFromMoodle() {
-    if (this.isCurrentlyRunning('syncFromMoodle')) {
-      syncLogger.warn('Sync from Moodle is already running, skipping...');
-      return;
-    }
-
-    this.setRunningFlag('syncFromMoodle', true);
-    
-    try {
-      syncLogger.info('Starting scheduled sync from Moodle');
-      
-      const result = await syncFromMoodleService.syncGradesFromMoodle();
-      
-      syncLogger.info('Scheduled sync from Moodle completed successfully', {
-        totalGrades: result.total,
-        updated: result.updated,
-        errors: result.errors
-      });
-
-      // Gửi thông báo nếu có lỗi
-      if (result.errors > 0) {
-        this.notifyErrors('Sync from Moodle', result);
-      }
-    } catch (error) {
-      syncLogger.error('Scheduled sync from Moodle failed:', error);
-      this.notifyErrors('Sync from Moodle', { error: error.message });
-    } finally {
-      this.setRunningFlag('syncFromMoodle', false);
-    }
-  }
-
-  // Chạy maintenance tasks
-  async runMaintenance() {
-    try {
-      syncLogger.info('Starting scheduled maintenance');
-
-      // Cleanup old logs (older than 30 days)
-      // Đây là nơi có thể thêm logic cleanup logs, backup database, etc.
-      
-      syncLogger.info('Scheduled maintenance completed');
-    } catch (error) {
-      syncLogger.error('Scheduled maintenance failed:', error);
     }
   }
 
@@ -229,14 +135,34 @@ class SchedulerService {
   // Chạy một job ngay lập tức
   async runJobNow(jobName) {
     switch (jobName) {
-      case 'syncToMoodle':
-        return await this.runSyncToMoodle();
-      case 'syncFromMoodle':
-        return await this.runSyncFromMoodle();
-      case 'maintenance':
-        return await this.runMaintenance();
+      case 'syncAllToMoodle':
+        return await this.runSyncAllToMoodle();
       default:
         throw new Error(`Unknown job: ${jobName}`);
+    }
+  }
+
+  // Chạy sync all to Moodle
+  async runSyncAllToMoodle() {
+    try {
+      if (this.isCurrentlyRunning('syncAllToMoodle')) {
+        logger.warn('Sync all to Moodle is already running');
+        return;
+      }
+
+      this.setRunningFlag('syncAllToMoodle', true);
+      syncLogger.info('Starting scheduled sync all to Moodle');
+
+      const result = await syncToMoodleService.syncAllToMoodle();
+
+      syncLogger.info('Scheduled sync all to Moodle completed successfully', result);
+      return result;
+    } catch (error) {
+      syncLogger.error('Scheduled sync all to Moodle failed:', error);
+      this.notifyErrors('syncAllToMoodle', error);
+      throw error;
+    } finally {
+      this.setRunningFlag('syncAllToMoodle', false);
     }
   }
 }

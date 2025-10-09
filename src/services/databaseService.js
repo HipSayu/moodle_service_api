@@ -84,10 +84,10 @@ class DatabaseService {
     WHERE lhoc.TenLopHoc LIKE '%66%' `
       const parameters = {};
 
-      // if (lastSyncDate) {
-      //   query += ' AND NgayCapNhat > @lastSyncDate';
-      //   parameters.lastSyncDate = lastSyncDate;
-      // }
+      if (lastSyncDate) {
+        query += ' AND NgayCapNhat > @lastSyncDate';
+        parameters.lastSyncDate = lastSyncDate;
+      }
 
       // query += ' ORDER BY NgayCapNhat DESC';
 

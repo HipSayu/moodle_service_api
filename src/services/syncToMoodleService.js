@@ -2,10 +2,56 @@ import databaseService from './databaseService.js';
 import moodleService from './moodleService.js';
 import { logger, syncLogger } from '../utils/logger.js';
 import { retryOperation } from '../utils/errorHandler.js';
-import { CONSTRAINTS } from 'cron/dist/constants.js';
+import fs from 'fs';
+import path from 'path';
+import { fileURLToPath } from 'url';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
 class SyncToMoodleService {
   constructor() {
     this.lastSyncDate = {};
+    this.lastSyncFile = path.join(__dirname, '../../lastSync.json');
+    this.loadLastSync();
+  }
+
+  // Load last sync dates from file
+  loadLastSync() {
+    try {
+      if (fs.existsSync(this.lastSyncFile)) {
+        const data = fs.readFileSync(this.lastSyncFile, 'utf8');
+        const parsed = JSON.parse(data);
+        // Convert string dates back to Date objects
+        Object.keys(parsed).forEach(key => {
+          if (parsed[key]) {
+            this.lastSyncDate[key] = new Date(parsed[key]);
+          }
+        });
+        syncLogger.info('Loaded last sync dates from file', this.lastSyncDate);
+      } else {
+        syncLogger.info('No last sync file found, starting fresh');
+      }
+    } catch (error) {
+      syncLogger.error('Failed to load last sync dates:', error);
+    }
+  }
+
+  // Save last sync dates to file
+  saveLastSync() {
+    try {
+      // Convert Date objects to ISO strings for JSON
+      const dataToSave = {};
+      Object.keys(this.lastSyncDate).forEach(key => {
+        if (this.lastSyncDate[key]) {
+          dataToSave[key] = this.lastSyncDate[key].toISOString();
+        }
+      });
+      fs.writeFileSync(this.lastSyncFile, JSON.stringify(dataToSave, null, 2));
+      syncLogger.info('Saved last sync dates to file');
+    } catch (error) {
+      syncLogger.error('Failed to save last sync dates:', error);
+    }
   }
   //Done
   async syncStudentsToMoodle() {
@@ -45,6 +91,7 @@ class SyncToMoodleService {
         }
       }
       this.lastSyncDate.students = new Date();
+      this.saveLastSync();
 
       syncLogger.info('Student sync to Moodle completed', {
         totalStudents: students.length,
@@ -136,6 +183,7 @@ class SyncToMoodleService {
       }
 
       this.lastSyncDate.teachers = new Date();
+      this.saveLastSync();
 
       syncLogger.info('Teacher sync to Moodle completed', {
         totalTeachers: teachers.length,
