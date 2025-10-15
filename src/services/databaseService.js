@@ -145,7 +145,7 @@ class DatabaseService {
   // Lấy danh sách khóa học
   async getCourses(lastSyncDate = null) {
     try {
-      let query = `
+      let query1 = `
 SELECT
     lhp.Id AS IDLopHocPhan,
     lhp.MaLopHocPhan,
@@ -175,17 +175,21 @@ SELECT
     WHERE lhp.IsXepLich = 1 
       AND lhoc.TenLopHoc LIKE '%66CS2%'
 `;
-
+      let query2 = `
+ SELECT mh.TenMonHoc,lhoc.TenLopHoc, d.TenDot, lhp.Id AS IDLopHocPhan, mh.IDToBoMon, lhoc.NgayCapNhat  FROM dbo.TKB_MonHoc AS mh
+ INNER JOIN dbo.TKB_LopHoc as lhoc ON lhoc.Id = mh.IDLopHoc
+ INNER JOIN dbo.DM_Dot d WITH (NOLOCK) ON lhoc.IDDot = d.Id
+ INNER JOIN  dbo.TKB_LopHocPhan as lhp ON lhp.IDMonHoc= mh.ID
+`
       const parameters = {};
       if (lastSyncDate) {
-        query += `
-        AND 
-            lhoc.NgayCapNhat > @lastSyncDate 
+        query2 += `
+          WHERE lhoc.NgayCapNhat > @lastSyncDate 
         `;
         parameters.lastSyncDate = lastSyncDate;
       }
 
-      query += `
+      query1 += `
       GROUP BY 
         lhp.Id, lhp.MaLopHocPhan, mh.TenMonHoc, lhoc.TenLopHoc, 
         lhoc.MaLopHoc, mh.IDLoaiMonHoc, d.TenDot, 
@@ -194,7 +198,7 @@ SELECT
       ORDER BY lhoc.TenLopHoc, lhp.MaLopHocPhan;
       `;
 
-      const result = await this.executeQuery(query, parameters);
+      const result = await this.executeQuery(query2, parameters);
       return result.recordset;
     } catch (error) {
       logger.error('Error getting courses:', error);

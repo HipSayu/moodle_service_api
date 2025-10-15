@@ -71,7 +71,7 @@ class SyncToMoodleService {
               username: student.MaSinhVien,
               first_name: student.HoDem,
               last_name: student.Ten,
-              email: student.Email ,
+              email: student.Email,
               city: student.NguyenQuan || "HN",
               idnumber: student.MaSinhVien,
               password: student.MaSinhVien,
@@ -222,20 +222,38 @@ class SyncToMoodleService {
         try {
           await retryOperation(async () => {
             console.log("----------------------------------------")
-            // console.log(course)
-            // Kiểm tra course đã tồn tại chưa
             const existingCourse = await moodleService.getCourseByShortname(course.IDLopHocPhan);
-            // Tìm Id Categori theo CategoriNumber
-            const category = await moodleService.getCategoryByIdNumber(course.IDToBoMon.toString());
-            if (!category) {
-              throw new Error(`Category not found for department ID ${course.IDToBoMon}`);
+            let courseData = {}
+            if (course.IDToBoMon) {
+              const category = await moodleService.getCategoryByIdNumber(course.IDToBoMon.toString());
+              if (!category) {
+                console.log(`Category not found for department ID ${course.IDToBoMon}`);
+                courseData = {
+                  course_fullname: `${course.TenLopHoc} - ${course.TenMonHoc} - ${course.TenDot}`,
+                  course_shortname: course.IDLopHocPhan,
+                  course_categoryid: 134,
+                  course_idnumber: course.IDLopHocPhan
+                };
+              }
+              else {
+                courseData = {
+                  course_fullname: `${course.TenLopHoc} - ${course.TenMonHoc} - ${course.TenDot}`,
+                  course_shortname: course.IDLopHocPhan,
+                  course_categoryid: category.id,
+                  course_idnumber: course.IDLopHocPhan
+                };
+              }
             }
-            const courseData = {
-              course_fullname: `${course.TenLopHoc} - ${course.TenMonHoc} - ${course.TenDot}`,
-              course_shortname: course.IDLopHocPhan,
-              course_categoryid: category.id,
-              course_idnumber: course.IDLopHocPhan
-            };
+            else {
+              courseData = {
+                course_fullname: `${course.TenLopHoc} - ${course.TenMonHoc} - ${course.TenDot}`,
+                course_shortname: course.IDLopHocPhan,
+                course_categoryid: 134,
+                course_idnumber: course.IDLopHocPhan
+              };
+            }
+
+
 
             if (existingCourse) {
               console.log('-----------------------')
@@ -633,6 +651,169 @@ class SyncToMoodleService {
       throw error;
     }
   }
+
+  /**
+   * Tạo bài kiểm tra cuối kỳ cho tất cả khóa học trong Moodle
+   * Sử dụng custom plugin local_quizapi để tạo quiz qua Web Service API
+   * 
+   * @returns {Object} Kết quả tạo quiz với thống kê
+   */
+  async createFinalQuizForAllCourses() {
+    try {
+      syncLogger.info('Starting to create final quizzes for all Moodle courses');
+
+      // Lấy danh sách khóa học từ Moodle
+      const courses = await moodleService.getCourses();
+
+      if (!courses || courses.length === 0) {
+        syncLogger.info('No courses found in Moodle');
+        return {
+          success: true,
+          message: 'No courses found in Moodle',
+          totalCourses: 0,
+          quizzesCreated: 0,
+          skipped: 0,
+          errors: []
+        };
+      }
+
+      let quizzesCreated = 0;
+      let skipped = 0;
+      const errors = [];
+      const createdQuizzes = [];
+
+      for (const course of courses) {
+        // Bỏ qua "Site home" course (ID = 1)
+        if (course.id === 1) {
+          syncLogger.info('Skipping Site home course');
+          skipped++;
+          continue;
+        }
+
+        try {
+          await retryOperation(async () => {
+            // Lấy nội dung khóa học (các sections)
+            const contents = await moodleService.getCourseContents(course.id);
+
+            if (!contents || contents.length === 0) {
+              syncLogger.warn(`No sections found in course: ${course.fullname} (ID: ${course.id})`);
+              skipped++;
+              return;
+            }
+
+            // Tìm section cuối cùng (section có số lớn nhất)
+            const lastSection = contents.reduce((max, section) => {
+              // Bỏ qua section 0 (General)
+              if (section.section === 0) return max;
+              return section.section > max.section ? section : max;
+            }, contents[0]);
+
+            // Kiểm tra xem đã có quiz trong section cuối chưa
+            const quizSectionName = 'Bài kiểm tra cuối kỳ';
+            let hasQuiz = false;
+
+            if (lastSection.modules && lastSection.modules.length > 0) {
+              hasQuiz = lastSection.modules.some(module => 
+                module.modname === 'quiz' && 
+                (module.name === 'Bài kiểm tra cuối kỳ' || module.name.includes('kiểm tra cuối'))
+              );
+            }
+
+            if (hasQuiz) {
+              syncLogger.info(`Quiz already exists in course: ${course.fullname} (ID: ${course.id})`);
+              skipped++;
+              return;
+            }
+
+            // Đổi tên section cuối nếu chưa đúng
+            if (lastSection.name !== quizSectionName) {
+              try {
+                await moodleService.renameSection(course.id, lastSection.id, quizSectionName);
+                syncLogger.info(`✓ Renamed section to "${quizSectionName}" for course: ${course.fullname}`);
+              } catch (renameError) {
+                syncLogger.warn(`Could not rename section for course ${course.fullname}: ${renameError.message}`);
+                // Tiếp tục tạo quiz dù không đổi tên được
+              }
+            }
+
+            // Tạo quiz trong section cuối bằng custom plugin
+            const quizData = {
+              name: 'Bài kiểm tra cuối kỳ',
+              intro: `<p>Bài kiểm tra cuối kỳ của khóa học <strong>${course.fullname}</strong></p>
+                      <p>Thời gian làm bài: 60 phút</p>
+                      <p>Số lần làm bài: 1 lần</p>
+                      <p>Điểm tối đa: 10 điểm</p>`,
+              section: lastSection.section, // Section number (không phải section.id)
+              timeopen: 0, // Không giới hạn thời gian mở
+              timeclose: 0, // Không giới hạn thời gian đóng
+              timelimit: 3600, // 60 phút = 3600 giây
+              attempts: 1, // Cho phép làm 1 lần
+              grademethod: 1, // 1 = Highest grade (lấy điểm cao nhất)
+              grade: 10, // Điểm tối đa
+              password: '', // Không đặt mật khẩu
+              shuffleanswers: 1, // Trộn câu trả lời
+              visible: 1 // Hiển thị
+            };
+
+            syncLogger.info(`Creating quiz for course: ${course.fullname} (ID: ${course.id}), Section: ${lastSection.section}`);
+
+            // Sử dụng custom plugin để tạo quiz
+            const result = await moodleService.createQuizWithPlugin(course.id, quizData);
+
+            if (result && result.success && result.quizId) {
+              quizzesCreated++;
+              createdQuizzes.push({
+                course_id: course.id,
+                course_name: course.fullname,
+                quiz_id: result.quizId,
+                quiz_name: result.name,
+                section: lastSection.section
+              });
+              syncLogger.info(`✓ Quiz created successfully - Course: ${course.fullname}, Quiz ID: ${result.quizId}`);
+            } else {
+              throw new Error(`Plugin returned unsuccessful result for course ${course.fullname}: ${JSON.stringify(result)}`);
+            }
+          }, 3, 2000); // Retry 3 lần, delay 2 giây
+
+        } catch (error) {
+          errors.push({
+            course_id: course.id,
+            course_name: course.fullname,
+            error: error.message,
+            stack: error.stack
+          });
+          syncLogger.error(`✗ Failed to create quiz for course ${course.fullname} (ID: ${course.id}):`, error);
+        }
+      }
+
+      const summary = {
+        success: errors.length < courses.length, // Thành công nếu có ít nhất 1 course được xử lý
+        totalCourses: courses.length,
+        quizzesCreated,
+        skipped,
+        errors: errors.length,
+        errorDetails: errors,
+        createdQuizzes: createdQuizzes.slice(0, 20), // Chỉ trả về 20 quiz đầu tiên để tránh response quá lớn
+        message: `Đã tạo ${quizzesCreated} quiz cho ${courses.length} khóa học. Bỏ qua: ${skipped}. Lỗi: ${errors.length}.`,
+        timestamp: new Date().toISOString()
+      };
+
+      syncLogger.info('Final quiz creation completed', {
+        totalCourses: courses.length,
+        quizzesCreated,
+        skipped,
+        errorCount: errors.length,
+        topErrors: errors.slice(0, 5)
+      });
+
+      return summary;
+
+    } catch (error) {
+      syncLogger.error('Final quiz creation failed with critical error:', error);
+      throw error;
+    }
+  }
+
 }
 
 export default new SyncToMoodleService();

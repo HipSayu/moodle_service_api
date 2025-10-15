@@ -72,6 +72,37 @@ class App {
       }
     });
 
+    // Scheduler control routes
+    this.app.post('/scheduler/start', async (req, res) => {
+      try {
+        await schedulerService.start();
+        res.json({
+          success: true,
+          message: 'Scheduler started successfully'
+        });
+      } catch (error) {
+        res.status(400).json({
+          success: false,
+          message: error.message
+        });
+      }
+    });
+
+    this.app.post('/scheduler/stop', async (req, res) => {
+      try {
+        schedulerService.stop();
+        res.json({
+          success: true,
+          message: 'Scheduler stopped successfully'
+        });
+      } catch (error) {
+        res.status(400).json({
+          success: false,
+          message: error.message
+        });
+      }
+    });
+
     // 404 handler
     this.app.use('*', (req, res) => {
       res.status(404).json({
@@ -128,7 +159,7 @@ class App {
       // Initialize database
       await this.initializeDatabase();
       // Initialize scheduler
-      await this.initializeScheduler();
+      // await this.initializeScheduler(); // Tắt tự động đồng bộ
 
       logger.info('Application initialized successfully');
     } catch (error) {
@@ -163,17 +194,15 @@ class App {
       logger.info('Shutting down server...');
 
       // Stop scheduler
-      if (schedulerService) {
-        schedulerService.stop();
-      }
+      // if (schedulerService) {
+      //   schedulerService.stop();
+      // }
 
       // Close database connection
       if (databaseService) {
         await databaseService.disconnect();
       }
-
-      
-
+     
       // Close server
       if (this.server) {
         this.server.close(() => {
@@ -200,5 +229,4 @@ class App {
     });
   }
 }
-
 export default App;

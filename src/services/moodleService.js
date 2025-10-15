@@ -9,13 +9,17 @@ class MoodleService {
     this.service = config.moodle.service;
   }
 
+
+
+
+
   // Gọi Moodle Web Service API
-  async callWebService(wsfunction, parameters = {}) {
+  async callWebService(wsfunction, parameters = {}, tokenCreate = '') {
     try {
       const url = `${this.baseUrl}/webservice/rest/server.php`;
 
       const data = {
-        wstoken: this.token,
+        wstoken: tokenCreate !='' ? tokenCreate : this.token,
         wsfunction: wsfunction,
         moodlewsrestformat: 'json',
         ...parameters
@@ -23,7 +27,7 @@ class MoodleService {
 
       const response = await axios.post(url, null, {
         params: data,
-        timeout: 30000
+        timeout: 100000
       });
 
       if (response.data && response.data.exception) {
@@ -297,6 +301,16 @@ class MoodleService {
     }
   }
 
+  async getCoursesLimit(limit = 10) {
+    try {
+      const result = await this.callWebService('core_course_get_courses', {});
+      return (result || []).slice(0, limit);
+    } catch (error) {
+      logger.error('Error getting courses:', error);
+      throw error;
+    }
+  }
+
   // Đăng ký user vào course
   async enrollUserToCourse(userId, courseId, roleId = 5, moodleUser, moodleCourse) {
     try {
@@ -499,57 +513,42 @@ class MoodleService {
   }
 
   // Tạo quiz trong course
-  async createQuiz(courseId, sectionId, quizData) {
+  async createQuiz(courseId, quizData) {
     try {
-      const quiz = {
-        course: courseId,
-        name: quizData.name,
-        intro: quizData.intro || '',
-        introformat: 1, // HTML format
-        timeopen: quizData.timeopen || 0,
-        timeclose: quizData.timeclose || 0,
-        timelimit: quizData.timelimit || 0,
-        overduehandling: quizData.overduehandling || 'autosubmit',
-        graceperiod: quizData.graceperiod || 0,
-        preferredbehaviour: quizData.preferredbehaviour || 'deferredfeedback',
-        attempts: quizData.attempts || 0,
-        gradecat: quizData.gradecat || -1,
-        grademethod: quizData.grademethod || 1,
-        decimalpoints: quizData.decimalpoints || 2,
-        questiondecimalpoints: quizData.questiondecimalpoints || 2,
-        sumgrades: quizData.sumgrades || 0,
-        grade: quizData.grade || 10,
-        timecreated: Math.floor(Date.now() / 1000),
-        timemodified: Math.floor(Date.now() / 1000),
-        password: quizData.password || '',
-        subnet: quizData.subnet || '',
-        delay1: quizData.delay1 || 0,
-        delay2: quizData.delay2 || 0,
-        showuserpicture: quizData.showuserpicture || 0,
-        showblocks: quizData.showblocks || 0,
-        navmethod: quizData.navmethod || 'free',
-        shuffleanswers: quizData.shuffleanswers || 1,
-        cmidnumber: quizData.cmidnumber || ''
+      const url = `${this.baseUrl}/webservice/rest/server.php`;
+
+      const params = {
+        wstoken: '6287e2aa8d57c5336498da6a129cfbd7',
+        wsfunction: 'local_customws_create_quiz',
+        moodlewsrestformat: 'json',
+        courseid: Number(courseId),
+        name: String(quizData.name),
+        intro: String(quizData.intro ?? 'Final Exam'),
       };
 
-      const result = await this.callWebService('mod_quiz_add_instance', {
-        quiz: quiz
-      });
+      const response = await axios.post(url, null, { params, timeout: 60000 });
+      const data = response.data;
 
-      if (result && result.quizid) {
-        logger.info(`Quiz created: ${quizData.name} in course ${courseId}`);
-
-        // Move quiz to the specified section if sectionId is provided
-        if (sectionId) {
-          await this.moveModuleToSection(result.cmid, sectionId);
-        }
-
-        return result;
-      } else {
-        throw new Error('Failed to create quiz');
+      if (!data) {
+        throw new Error('Không nhận được phản hồi từ Moodle');
       }
+
+      if (data.exception || data.errorcode) {
+        throw new Error(`Moodle Error: ${data.message || 'Không rõ nguyên nhân'}`);
+      }
+
+      if (data.status === 'success') {
+        console.log(
+          `✅ Quiz "${quizData.name}" created successfully in course ${courseId} (Quiz ID: ${data.quizid})`
+        );
+        return data;
+      }
+      // console.log(data)
+
+      throw new Error(`❌ Tạo quiz thất bại cho khóa học ${courseId}: ${data.message || 'Unknown error'}`);
+
     } catch (error) {
-      logger.error('Error creating quiz:', error);
+      console.error(`💥 Lỗi khi tạo quiz trong khóa học ${courseId}: ${error.message}`);
       throw error;
     }
   }
@@ -564,6 +563,167 @@ class MoodleService {
       logger.info(`Module ${cmid} moved to section ${sectionId}`);
     } catch (error) {
       logger.error('Error moving module to section:', error);
+      throw error;
+    }
+  }
+
+  // Kiểm tra các functions có sẵn trong Moodle Web Service
+  async getAvailableFunctions() {
+    try {
+      const result = await this.callWebService('core_webservice_get_site_info', {});
+      return result;
+    } catch (error) {
+      logger.error('Error getting available functions:', error);
+      throw error;
+    }
+  }
+
+  // Lấy danh sách tất cả functions
+  async getAllFunctions() {
+    try {
+      const result = await this.callWebService('core_webservice_get_site_info', {});
+      if (result && result.functions) {
+        return result.functions.map(func => func.name);
+      }
+      return [];
+    } catch (error) {
+      logger.error('Error getting all functions:', error);
+      throw error;
+    }
+  }
+
+  // Kiểm tra quyền của user Moodle
+  async checkUserCapabilities() {
+    try {
+      const result = await this.callWebService('core_webservice_get_site_info', {});
+      return {
+        userid: result.userid,
+        username: result.username,
+        firstname: result.firstname,
+        lastname: result.lastname,
+        siteurl: result.siteurl,
+        usercanmanageownfiles: result.usercanmanageownfiles,
+        userquota: result.userquota,
+        usermaxuploadfilesize: result.usermaxuploadfilesize,
+        userhomepage: result.userhomepage,
+        userprivateaccesskey: result.userprivateaccesskey,
+        siteid: result.siteid,
+        sitecalendartype: result.sitecalendartype,
+        usercalendartype: result.usercalendartype,
+        theme: result.theme,
+        language: result.language,
+        functions: result.functions ? result.functions.length : 0
+      };
+    } catch (error) {
+      logger.error('Error checking user capabilities:', error);
+      throw error;
+    }
+  }
+
+  // Get course contents
+  async getCourseContents(courseId) {
+    const url = `${this.baseUrl}/webservice/rest/server.php`;
+    const params = {
+      wstoken: this.token,
+      wsfunction: 'core_course_get_contents',
+      moodlewsrestformat: 'json',
+      courseid: courseId
+    };
+    const response = await axios.get(url, { params, timeout: 30000 });
+    return response.data;
+  }
+
+  // Rename section
+  async renameSection(courseId, sectionId, newName) {
+    const url = `${this.baseUrl}/webservice/rest/server.php`;
+    const params = {
+      wstoken: this.token,
+      wsfunction: 'core_update_inplace_editable',
+      moodlewsrestformat: 'json',
+      component: 'format_topics',
+      itemtype: 'sectionname',
+      itemid: sectionId,
+      value: newName
+    };
+    const response = await axios.get(url, { params, timeout: 30000 });
+    return response.data;
+  }
+
+  /**
+   * Tạo quiz sử dụng custom plugin local_quizapi
+   * @param {number} courseId - ID của khóa học
+   * @param {Object} quizData - Dữ liệu quiz
+   * @returns {Object} Thông tin quiz đã tạo
+   */
+  async createQuizWithPlugin(courseId, quizData) {
+    try {
+      const params = {
+        courseid: courseId,
+        name: quizData.name,
+        intro: quizData.intro || '',
+        section: quizData.section || 0,
+        timeopen: quizData.timeopen || 0,
+        timeclose: quizData.timeclose || 0,
+        timelimit: quizData.timelimit || 0,
+        attempts: quizData.attempts || 0,
+        grademethod: quizData.grademethod || 1,
+        grade: quizData.grade || 10,
+        password: quizData.password || '',
+        shuffleanswers: quizData.shuffleanswers !== undefined ? quizData.shuffleanswers : 1,
+        visible: quizData.visible !== undefined ? quizData.visible : 1
+      };
+
+      const result = await this.callWebService('local_quizapi_create_quiz', params);
+
+      // Kiểm tra response từ plugin
+      // Plugin trả về: { quizid, courseid, name, message }
+      if (result && result.quizid) {
+        logger.info(`✓ Quiz created via plugin: "${quizData.name}" in course ${courseId} (Quiz ID: ${result.quizid})`);
+        return {
+          success: true,
+          quizId: result.quizid,
+          courseId: result.courseid,
+          name: result.name,
+          message: result.message || 'Quiz created successfully'
+        };
+      } else if (result && result.exception) {
+        // Moodle trả về lỗi
+        throw new Error(`Moodle API Error: ${result.message || result.exception}`);
+      } else {
+        // Response không đúng định dạng
+        throw new Error(`Invalid response from plugin: ${JSON.stringify(result)}`);
+      }
+    } catch (error) {
+      logger.error(`✗ Error creating quiz via plugin in course ${courseId}:`, error.message);
+      throw error;
+    }
+  }
+
+  // Lấy thông tin quiz từ plugin
+  async getQuizInfo(quizId) {
+    try {
+      const result = await this.callWebService('local_quizapi_get_quiz_info', {
+        quizid: quizId
+      });
+      return result;
+    } catch (error) {
+      logger.error('Error getting quiz info:', error);
+      throw error;
+    }
+  }
+
+  // Thêm câu hỏi vào quiz
+  async addQuestionToQuiz(quizId, questionId, page = 1, maxmark = 1.0) {
+    try {
+      const result = await this.callWebService('local_quizapi_add_question_to_quiz', {
+        quizid: quizId,
+        questionid: questionId,
+        page: page,
+        maxmark: maxmark
+      });
+      return result;
+    } catch (error) {
+      logger.error('Error adding question to quiz:', error);
       throw error;
     }
   }

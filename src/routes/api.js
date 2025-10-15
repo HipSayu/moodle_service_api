@@ -216,6 +216,66 @@ router.get('/data/courses', asyncHandler(async (req, res) => {
   });
 }));
 
+// Tạo bài kiểm tra cuối kỳ cho tất cả khóa học trong Moodle
+router.post('/sync/create-final-quiz', asyncHandler(async (req, res) => {
+  const result = await syncToMoodleService.createFinalQuizForAllCourses();
+  res.json({
+    success: true,
+    message: 'Final quiz creation completed',
+    data: result
+  });
+}));
+
+// Kiểm tra các functions Moodle Web Service có sẵn
+router.get('/moodle/functions', asyncHandler(async (req, res) => {
+  const functions = await moodleService.getAllFunctions();
+  res.json({
+    success: true,
+    message: 'Moodle Web Service functions retrieved',
+    data: functions,
+    count: functions.length
+  });
+}));
+
+// Kiểm tra quyền của user Moodle
+router.get('/moodle/user-info', asyncHandler(async (req, res) => {
+  const userInfo = await moodleService.checkUserCapabilities();
+  res.json({
+    success: true,
+    message: 'Moodle user capabilities retrieved',
+    data: userInfo
+  });
+}));
+
+// Test tạo quiz trong một course cụ thể
+router.post('/test/create-quiz/:courseId', asyncHandler(async (req, res) => {
+  const { courseId } = req.params;
+  try {
+    const quizData = {
+      name: `Test Quiz - ${new Date().toISOString()}`,
+      intro: '<p>This is a test quiz</p>',
+      timeopen: 0,
+      timeclose: 0,
+      timelimit: 1800, // 30 minutes
+      attempts: 1,
+      grade: 10
+    };
+
+    const result = await moodleService.createQuiz(courseId, 1, quizData);
+    res.json({
+      success: true,
+      message: 'Test quiz created successfully',
+      data: result
+    });
+  } catch (error) {
+    res.status(400).json({
+      success: false,
+      error: error.message,
+      timestamp: new Date().toISOString()
+    });
+  }
+}));
+
 
 
 export default router;
