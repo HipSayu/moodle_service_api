@@ -17,13 +17,13 @@ class MoodleService {
   async callWebService(wsfunction, parameters = {}, tokenCreate = '') {
     try {
       const url = `${this.baseUrl}/webservice/rest/server.php`;
-
       const data = {
         wstoken: tokenCreate !='' ? tokenCreate : this.token,
         wsfunction: wsfunction,
         moodlewsrestformat: 'json',
         ...parameters
       };
+      console.log(data)
 
       const response = await axios.post(url, null, {
         params: data,
@@ -248,9 +248,9 @@ class MoodleService {
         updateData['courses[0][enddate]'] = Math.floor(new Date(courseData.end_date).getTime() / 1000);
       }
 
-      await this.callWebService('core_course_update_courses', updateData);
+     const data = await this.callWebService('core_course_update_courses', updateData);
       logger.info(`Updated course in Moodle: ID ${courseId}`);
-      return true;
+      return data;
     } catch (error) {
       logger.error('Error updating course in Moodle:', error);
       throw error;
@@ -724,6 +724,233 @@ class MoodleService {
       return result;
     } catch (error) {
       logger.error('Error adding question to quiz:', error);
+      throw error;
+    }
+  }
+
+  // ==================== SECTION API PLUGIN ====================
+  
+  /**
+   * Tạo section mới sử dụng plugin local_sectionapi
+   * @param {number} courseId - ID của course
+   * @param {object} sectionData - Dữ liệu section
+   * @returns {object} Thông tin section đã tạo
+   */
+  async createSectionWithPlugin(courseId, sectionData) {
+    try {
+      logger.info(`Creating section with plugin for course ${courseId}: ${sectionData.name}`);
+      
+      const result = await this.callWebService('local_sectionapi_create_section', {
+        courseid: courseId,
+        name: sectionData.name,
+        summary: sectionData.summary || '',
+        visible: sectionData.visible !== undefined ? sectionData.visible : 1,
+        position: sectionData.position || 0  // 0 = thêm vào cuối
+      },'f797545faa469cde6f999b2f2e191cc1');
+
+      if (result && result.sectionid) {
+        logger.info(`Section created successfully: ${result.name} (ID: ${result.sectionid}, Section: ${result.section})`);
+        return {
+          sectionid: result.sectionid,
+          courseid: result.courseid,
+          name: result.name,
+          section: result.section,
+          message: result.message
+        };
+      } else {
+        throw new Error('Failed to create section - no section ID returned');
+      }
+    } catch (error) {
+      logger.error('Error creating section with plugin:', {
+        courseId,
+        sectionName: sectionData.name,
+        error: error.message,
+        response: error.response?.data
+      });
+      throw error;
+    }
+  }
+
+  /**
+   * Cập nhật section sử dụng plugin local_sectionapi
+   */
+  async updateSectionWithPlugin(sectionId, updateData) {
+    try {
+      const params = {
+        sectionid: sectionId
+      };
+      
+      if (updateData.name !== undefined) params.name = updateData.name;
+      if (updateData.summary !== undefined) params.summary = updateData.summary;
+      if (updateData.visible !== undefined) params.visible = updateData.visible;
+
+      const result = await this.callWebService('local_sectionapi_update_section', params);
+      
+      if (result && result.success) {
+        logger.info(`Section updated successfully: ${sectionId}`);
+        return result;
+      } else {
+        throw new Error('Failed to update section');
+      }
+    } catch (error) {
+      logger.error('Error updating section:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Xóa section sử dụng plugin local_sectionapi
+   */
+  async deleteSectionWithPlugin(sectionId, forceDelete = false) {
+    try {
+      const result = await this.callWebService('local_sectionapi_delete_section', {
+        sectionid: sectionId,
+        forcedelete: forceDelete
+      });
+      
+      if (result && result.success) {
+        logger.info(`Section deleted successfully: ${sectionId}`);
+        return result;
+      } else {
+        logger.warn(`Failed to delete section ${sectionId}: ${result.message}`);
+        return result;
+      }
+    } catch (error) {
+      logger.error('Error deleting section:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Lấy danh sách tất cả sections trong course
+   */
+  async getCourseSectionsWithPlugin(courseId) {
+    try {
+      const result = await this.callWebService('local_sectionapi_get_course_sections', {
+        courseid: courseId
+      });
+      
+      if (Array.isArray(result)) {
+        logger.info(`Retrieved ${result.length} sections for course ${courseId}`);
+        return result;
+      } else {
+        throw new Error('Failed to get course sections');
+      }
+    } catch (error) {
+      logger.error('Error getting course sections:', error);
+      throw error;
+    }
+  }
+
+  // ==================== QUESTION API PLUGIN ====================
+  
+  /**
+   * Tạo câu hỏi mới sử dụng plugin local_questionapi
+   * @param {number} courseId - ID của course
+   * @param {object} questionData - Dữ liệu câu hỏi
+   * @returns {object} Thông tin câu hỏi đã tạo
+   */
+  async createQuestionWithPlugin(courseId, questionData) {
+    try {
+      logger.info(`Creating question with plugin for course ${courseId}: ${questionData.name}`);
+      
+      const result = await this.callWebService('local_questionapi_create_question', {
+        courseid: courseId,
+        categoryid: questionData.categoryid || 0,
+        questiontype: questionData.questiontype || 'multichoice',
+        name: questionData.name,
+        questiontext: questionData.questiontext,
+        defaultmark: questionData.defaultmark || 1.0,
+        answers: JSON.stringify(questionData.answers || [])
+      });
+
+      if (result && result.questionid) {
+        logger.info(`Question created successfully: ${result.name} (ID: ${result.questionid})`);
+        return {
+          questionid: result.questionid,
+          courseid: result.courseid,
+          categoryid: result.categoryid,
+          name: result.name,
+          questiontype: result.questiontype,
+          message: result.message
+        };
+      } else {
+        throw new Error('Failed to create question - no question ID returned');
+      }
+    } catch (error) {
+      logger.error('Error creating question with plugin:', {
+        courseId,
+        questionName: questionData.name,
+        error: error.message,
+        response: error.response?.data
+      });
+      throw error;
+    }
+  }
+
+  /**
+   * Thêm câu hỏi vào quiz
+   */
+  async addQuestionToQuizWithPlugin(quizId, questionId, page = 1, maxmark = 1.0) {
+    try {
+      logger.info(`Adding question ${questionId} to quiz ${quizId}`);
+      
+      const result = await this.callWebService('local_questionapi_add_question_to_quiz', {
+        quizid: quizId,
+        questionid: questionId,
+        page: page,
+        maxmark: maxmark
+      });
+      
+      if (result && result.success) {
+        logger.info(`Question added to quiz successfully`);
+        return result;
+      } else {
+        throw new Error('Failed to add question to quiz');
+      }
+    } catch (error) {
+      logger.error('Error adding question to quiz:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Tạo câu hỏi và thêm vào quiz trong 1 lần gọi
+   */
+  async createAndAddQuestionToQuiz(quizId, questionData) {
+    try {
+      logger.info(`Creating and adding question to quiz ${quizId}: ${questionData.name}`);
+      
+      const result = await this.callWebService('local_questionapi_create_and_add_question', {
+        quizid: quizId,
+        questiontype: questionData.questiontype || 'multichoice',
+        name: questionData.name,
+        questiontext: questionData.questiontext,
+        defaultmark: questionData.defaultmark || 1.0,
+        answers: JSON.stringify(questionData.answers || []),
+        page: questionData.page || 1
+      },'f797545faa469cde6f999b2f2e191cc1');
+      
+      if (result && result.success) {
+        logger.info(`Question created and added to quiz successfully: ${result.name} (ID: ${result.questionid})`);
+        return {
+          success: result.success,
+          questionid: result.questionid,
+          quizid: result.quizid,
+          name: result.name,
+          questiontype: result.questiontype,
+          message: result.message
+        };
+      } else {
+        throw new Error('Failed to create and add question to quiz');
+      }
+    } catch (error) {
+      logger.error('Error creating and adding question to quiz:', {
+        quizId,
+        questionName: questionData.name,
+        error: error.message,
+        response: error.response?.data
+      });
       throw error;
     }
   }

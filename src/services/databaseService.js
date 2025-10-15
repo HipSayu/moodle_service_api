@@ -176,7 +176,7 @@ SELECT
       AND lhoc.TenLopHoc LIKE '%66CS2%'
 `;
       let query2 = `
- SELECT mh.TenMonHoc,lhoc.TenLopHoc, d.TenDot, lhp.Id AS IDLopHocPhan, mh.IDToBoMon, lhoc.NgayCapNhat  FROM dbo.TKB_MonHoc AS mh
+ SELECT mh.TenMonHoc,lhoc.TenLopHoc, d.TenDot, lhp.Id AS IDLopHocPhan, mh.IDToBoMon, lhoc.NgayCapNhat, mh.SoTietThucHanh, mh.SoTietLyThuyet  FROM dbo.TKB_MonHoc AS mh
  INNER JOIN dbo.TKB_LopHoc as lhoc ON lhoc.Id = mh.IDLopHoc
  INNER JOIN dbo.DM_Dot d WITH (NOLOCK) ON lhoc.IDDot = d.Id
  INNER JOIN  dbo.TKB_LopHocPhan as lhp ON lhp.IDMonHoc= mh.ID

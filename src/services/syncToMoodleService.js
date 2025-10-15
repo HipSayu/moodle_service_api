@@ -53,6 +53,170 @@ class SyncToMoodleService {
       syncLogger.error('Failed to save last sync dates:', error);
     }
   }
+
+  /**
+   * Đảm bảo course có đủ sections, nếu thiếu thì tạo thêm
+   * @param {number} courseId - Moodle Course ID
+   * @param {object} courseInfo - Thông tin khóa học từ database
+   */
+  async ensureCourseSections(courseId, courseInfo) {
+    try {
+      syncLogger.info(`Checking sections for course ${courseId}`);
+
+      // Lấy danh sách sections hiện có
+      const existingSections = await moodleService.getCourseContents(courseId);
+      
+      // Xác định sections cần có dựa trên loại khóa học
+      let requiredSections = [];
+      if (courseInfo.SoTietThucHanh < courseInfo.SoTietLyThuyet) {
+        // Lớp lý thuyết
+        requiredSections = [
+          { name: 'Tài liệu liên quan đến môn học', summary: 'Tài liệu liên quan đến môn học', visible: 1 },
+          { name: 'Chương 1', summary: 'Nội dung chương 1', visible: 1 },
+          { name: 'Chương 2', summary: 'Nội dung chương 2', visible: 1 },
+          { name: 'Chương 3', summary: 'Nội dung chương 3', visible: 1 },
+          { name: 'Kiểm tra giữa kì', summary: 'Bài kiểm tra giữa kì', visible: 1 },
+          { name: 'Kiểm tra cuối kì', summary: 'Bài kiểm tra cuối kì', visible: 1 }
+        ];
+      } else {
+        // Lớp thực hành
+        requiredSections = [
+          { name: 'Tài liệu liên quan đến môn học', summary: 'Tài liệu liên quan đến môn học', visible: 1 },
+          { name: 'Buổi Thông 1', summary: 'Buổi Thông 1', visible: 1 },
+          { name: 'Buổi Thông 2', summary: 'Buổi Thông 2', visible: 1 },
+          { name: 'Bảo vệ', summary: 'Bảo vệ', visible: 1 }
+        ];
+      }
+
+      // Kiểm tra từng section
+      const createdSections = [];
+      for (let i = 0; i < requiredSections.length; i++) {
+        const requiredSection = requiredSections[i];
+        // Section index bắt đầu từ 1 (0 là General section)
+        const sectionIndex = i + 1;
+        
+        // Tìm section tương ứng trong existingSections
+        let existingSection = existingSections.find(s => s.section === sectionIndex);
+
+        if (!existingSection) {
+          // Section chưa tồn tại, tạo mới
+          syncLogger.info(`Creating missing section "${requiredSection.name}" for course ${courseId}`);
+          try {
+            const newSection = await moodleService.createSectionWithPlugin(courseId, {
+              name: requiredSection.name,
+              summary: requiredSection.summary,
+              visible: requiredSection.visible,
+              position: 0
+            });
+            createdSections.push(newSection);
+            syncLogger.info(`✓ Created section "${requiredSection.name}" (section ${sectionIndex})`);
+          } catch (createError) {
+            syncLogger.error(`Failed to create section "${requiredSection.name}":`, createError);
+          }
+        } else {
+          // Section đã tồn tại, có thể cập nhật tên nếu cần
+          if (existingSection.name !== requiredSection.name) {
+            syncLogger.info(`Section ${sectionIndex} exists but with different name: "${existingSection.name}" -> "${requiredSection.name}"`);
+            // Có thể update tên section ở đây nếu cần
+          }
+          createdSections.push(existingSection);
+        }
+      }
+
+      // Nếu là lớp lý thuyết, kiểm tra và tạo quiz
+      if (courseInfo.SoTietThucHanh < courseInfo.SoTietLyThuyet && createdSections.length >= 6) {
+        await this.ensureCourseQuizzes(courseId, createdSections);
+      }
+
+      syncLogger.info(`✓ Course ${courseId} sections verified/created`);
+      return createdSections;
+
+    } catch (error) {
+      syncLogger.error(`Failed to ensure sections for course ${courseId}:`, error);
+      throw error;
+    }
+  }
+
+  /**
+   * Đảm bảo course có quiz giữa kỳ và cuối kỳ
+   * @param {number} courseId - Moodle Course ID
+   * @param {array} sections - Danh sách sections của course
+   */
+  async ensureCourseQuizzes(courseId, sections) {
+    try {
+      // Kiểm tra section 5 (Kiểm tra giữa kì) có quiz chưa
+      const midtermSection = sections[4]; // Index 4 = Section 5
+      if (midtermSection) {
+        // Check nếu có modules array và có quiz
+        const hasMidtermQuiz = midtermSection.modules && midtermSection.modules.length > 0 
+          ? midtermSection.modules.some(m => m.modname === 'quiz' && m.name.toLowerCase().includes('giữa'))
+          : false;
+
+        if (!hasMidtermQuiz) {
+          syncLogger.info(`Creating midterm quiz for course ${courseId} in section ${midtermSection.section}`);
+          try {
+            const midtermQuiz = await moodleService.createQuizWithPlugin(courseId, {
+              name: 'Bài kiểm tra giữa kỳ',
+              intro: '<p>Bài kiểm tra giữa kỳ</p>',
+              section: midtermSection.section,
+              timeopen: Math.floor(Date.now() / 1000),
+              timeclose: Math.floor(Date.now() / 1000) + 7 * 24 * 3600,
+              timelimit: 1800,
+              attempts: 2,
+              grademethod: 1,
+              grade: 10,
+              visible: 1
+            });
+            syncLogger.info(`✓ Created midterm quiz for course ${courseId}: ${midtermQuiz.quizId || 'unknown'}`);
+          } catch (quizError) {
+            syncLogger.error(`Failed to create midterm quiz for course ${courseId}:`, quizError);
+          }
+        } else {
+          syncLogger.info(`Midterm quiz already exists for course ${courseId}`);
+        }
+      } else {
+        syncLogger.warn(`Midterm section (index 4) not found for course ${courseId}`);
+      }
+
+      // Kiểm tra section 6 (Kiểm tra cuối kì) có quiz chưa
+      const finalSection = sections[5]; // Index 5 = Section 6
+      if (finalSection) {
+        // Check nếu có modules array và có quiz
+        const hasFinalQuiz = finalSection.modules && finalSection.modules.length > 0
+          ? finalSection.modules.some(m => m.modname === 'quiz' && m.name.toLowerCase().includes('cuối'))
+          : false;
+
+        if (!hasFinalQuiz) {
+          syncLogger.info(`Creating final quiz for course ${courseId} in section ${finalSection.section}`);
+          try {
+            const finalQuiz = await moodleService.createQuizWithPlugin(courseId, {
+              name: 'Bài kiểm tra cuối kỳ',
+              intro: '<p>Bài kiểm tra cuối kỳ</p>',
+              section: finalSection.section,
+              timeopen: Math.floor(Date.now() / 1000),
+              timeclose: Math.floor(Date.now() / 1000) + 7 * 24 * 3600,
+              timelimit: 1800,
+              attempts: 2,
+              grademethod: 1,
+              grade: 10,
+              visible: 1
+            });
+            syncLogger.info(`✓ Created final quiz for course ${courseId}: ${finalQuiz.quizId || 'unknown'}`);
+          } catch (quizError) {
+            syncLogger.error(`Failed to create final quiz for course ${courseId}:`, quizError);
+          }
+        } else {
+          syncLogger.info(`Final quiz already exists for course ${courseId}`);
+        }
+      } else {
+        syncLogger.warn(`Final section (index 5) not found for course ${courseId}`);
+      }
+
+    } catch (error) {
+      syncLogger.error(`Failed to ensure quizzes for course ${courseId}:`, error);
+    }
+  }
+
   //Done
   async syncStudentsToMoodle() {
     try {
@@ -253,15 +417,19 @@ class SyncToMoodleService {
               };
             }
 
-
-
             if (existingCourse) {
               console.log('-----------------------')
               syncLogger.info('Khóa học đã tồn tại')
               console.log(courseData.course_fullname)
               // Cập nhật course hiện có
               await moodleService.updateCourse(existingCourse.id, courseData);
-              // Update Sinh Viên, Các thứ,.....
+              
+              // Kiểm tra và tạo sections nếu thiếu
+              try {
+                await this.ensureCourseSections(existingCourse.id, course);
+              } catch (sectionError) {
+                syncLogger.error(`Failed to ensure sections for existing course ${existingCourse.id}:`, sectionError);
+              }
             } else {
               // Tạo course mới
               console.log('-----------------------')
@@ -270,42 +438,88 @@ class SyncToMoodleService {
               console.log(`Đã tạo khóa học mới ${courseData.course_fullname}`)
 
               // Tạo sections dựa trên loại khóa học
-              // try {
-              //   let sections = [];
+              try {
+                let sections = [];
+                let Quiz
+                if (course.SoTietThucHanh < course.SoTietLyThuyet) {
+                  // Lớp lý thuyết - tạo sections cho lý thuyết
+                  sections = [
+                    { name: 'Tài liệu liên quan đến môn học', summary: 'Tài liệu liên quan đến môn học', visible: 1, position: 0 },
+                    { name: 'Chương 1', summary: 'Nội dung chương 1', visible: 1, position: 0 },
+                    { name: 'Chương 2', summary: 'Nội dung chương 2', visible: 1, position: 0 },
+                    { name: 'Chương 3', summary: 'Nội dung chương 3', visible: 1, position: 0 },
+                    { name: 'Kiểm tra giữa kì', summary: 'Bài kiểm tra giữa kì', visible: 1, position: 0 },
+                    { name: 'Kiểm tra cuối kì', summary: 'Bài kiểm tra cuối kì', visible: 1, position: 0 }
+                  ];
+                } else {
+                  // Lớp thực hành - tạo sections cho thực hành
+                  sections = [
+                    { name: 'Tài liệu liên quan đến môn học', summary: 'Tài liệu liên quan đến môn học', visible: 1, position: 0 },
+                    { name: 'Buổi Thông 1', summary: 'Buổi Thông 1', visible: 1, position: 0 },
+                    { name: 'Buổi Thông 2', summary: 'Buổi Thông 2', visible: 1, position: 0 },
+                    { name: 'Bảo vệ', summary: 'Bảo vệ', visible: 1, position: 0 },
+                  ];
+                }
 
-              //   if (course.SoTietThucHanh < course.SoTietLyThuyet) {
-              //     // Lớp lý thuyết - tạo sections cho lý thuyết
-              //     sections = [
-              //       { name: 'Tài liệu liên quan đến môn học', summary: 'Tài liệu liên quan đến môn học', section: 1 },
-              //       { name: 'Chương 1', summary: 'Nội dung chương 1', section: 2 },
-              //       { name: 'Chương 2', summary: 'Nội dung chương 2', section: 3 },
-              //       { name: 'Chương 3', summary: 'Nội dung chương 3', section: 4 },
-              //       { name: 'Kiểm Tra giữa kì', summary: 'Bài kiểm tra giữa kì', section: 5 },
-              //       { name: 'Kiểm tra cuối kì', summary: 'Bài kiểm tra cuối kì', section: 6 }
-              //     ];
-              //   } else {
-              //     // Lớp thực hành - tạo sections cho thực hành
-              //     sections = [
-              //       { name: 'Tài liệu liên quan đến môn học', summary: 'Tài liệu liên quan đến môn học', section: 1 },
-              //       { name: 'Buổi Thông 1', summary: 'Buổi Thông 1', section: 2 },
-              //       { name: 'Buổi Thông 2', summary: 'Buổi Thông 2', section: 3 },
-              //       { name: 'Bảo vệ', summary: 'Bảo vệ', section: 4 },
-              //     ];
-              //   }
+                const createdSections = [];
+                for (const sectionData of sections) {
+                  const section = await moodleService.createSectionWithPlugin(newCourse.id, sectionData);
+                  createdSections.push(section);
+                }
+                
+                // Tạo quiz cho lớp lý thuyết
+                if (course.SoTietThucHanh < course.SoTietLyThuyet) {
+                  // Kiểm tra sections đã tạo đủ chưa
+                  if (createdSections.length < 6) {
+                    syncLogger.warn(`Not enough sections created for course ${newCourse.id}. Expected 6, got ${createdSections.length}`);
+                  } else {
+                    // Tạo quiz giữa kỳ
+                    try {
+                      const midtermQuiz = await moodleService.createQuizWithPlugin(newCourse.id, {
+                        name: 'Bài kiểm tra giữa kỳ',
+                        intro: '<p>Bài kiểm tra giữa kỳ</p>',
+                        section: createdSections[4].section,
+                        timeopen: Math.floor(Date.now() / 1000),
+                        timeclose: Math.floor(Date.now() / 1000) + 7 * 24 * 3600,
+                        timelimit: 1800,
+                        attempts: 2,
+                        grademethod: 1,
+                        grade: 10,
+                        visible: 1
+                      });
+                      syncLogger.info(`Created midterm quiz for course ${newCourse.id}: ${midtermQuiz.quizId || 'unknown'}`);
+                    } catch (quizError) {
+                      syncLogger.error(`Failed to create midterm quiz for course ${newCourse.id}:`, quizError);
+                    }
 
-              //   const createdSections = [];
-              //   for (const sectionData of sections) {
-              //     const section = await moodleService.createSection(newCourse.id, sectionData);
-              //     createdSections.push(section);
-              //   }
+                    // Tạo quiz cuối kỳ
+                    try {
+                      const finalQuiz = await moodleService.createQuizWithPlugin(newCourse.id, {
+                        name: 'Bài kiểm tra cuối kỳ',
+                        intro: '<p>Bài kiểm tra cuối kỳ</p>',
+                        section: createdSections[5].section,
+                        timeopen: Math.floor(Date.now() / 1000),
+                        timeclose: Math.floor(Date.now() / 1000) + 7 * 24 * 3600,
+                        timelimit: 1800,
+                        attempts: 2,
+                        grademethod: 1,
+                        grade: 10,
+                        visible: 1
+                      });
+                      syncLogger.info(`Created final quiz for course ${newCourse.id}: ${finalQuiz.quizId || 'unknown'}`);
+                    } catch (quizError) {
+                      syncLogger.error(`Failed to create final quiz for course ${newCourse.id}:`, quizError);
+                    }
+                  }
+                }
 
-              //   console.log(`Đã tạo nội dung cho khóa học ${courseData.course_fullname}`)
-              // } catch (contentError) {
-              //   syncLogger.error(`Failed to create content for course ${newCourse.id}:`, contentError);
-              //   console.log(`Lỗi tạo nội dung cho khóa học ${courseData.course_fullname}`)
-              // }
+
+                console.log(`Đã tạo nội dung cho khóa học ${courseData.course_fullname}`)
+              } catch (contentError) {
+                syncLogger.error(`Failed to create content for course ${newCourse.id}:`, contentError);
+                console.log(`Lỗi tạo nội dung cho khóa học ${courseData.course_fullname}`)
+              }
             }
-
             syncCount++;
           }, 3, 2000);
         } catch (error) {
@@ -713,8 +927,8 @@ class SyncToMoodleService {
             let hasQuiz = false;
 
             if (lastSection.modules && lastSection.modules.length > 0) {
-              hasQuiz = lastSection.modules.some(module => 
-                module.modname === 'quiz' && 
+              hasQuiz = lastSection.modules.some(module =>
+                module.modname === 'quiz' &&
                 (module.name === 'Bài kiểm tra cuối kỳ' || module.name.includes('kiểm tra cuối'))
               );
             }
