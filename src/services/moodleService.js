@@ -18,12 +18,11 @@ class MoodleService {
     try {
       const url = `${this.baseUrl}/webservice/rest/server.php`;
       const data = {
-        wstoken: tokenCreate !='' ? tokenCreate : this.token,
+        wstoken: tokenCreate != '' ? tokenCreate : this.token,
         wsfunction: wsfunction,
         moodlewsrestformat: 'json',
         ...parameters
       };
-      console.log(data)
 
       const response = await axios.post(url, null, {
         params: data,
@@ -248,7 +247,7 @@ class MoodleService {
         updateData['courses[0][enddate]'] = Math.floor(new Date(courseData.end_date).getTime() / 1000);
       }
 
-     const data = await this.callWebService('core_course_update_courses', updateData);
+      const data = await this.callWebService('core_course_update_courses', updateData);
       logger.info(`Updated course in Moodle: ID ${courseId}`);
       return data;
     } catch (error) {
@@ -699,6 +698,67 @@ class MoodleService {
     }
   }
 
+  /**
+   * Tạo assignment mới trong course bằng plugin local_assignmentapi
+   * @param {number} courseId - Moodle Course ID
+   * @param {object} assignmentData - Dữ liệu assignment
+   * @returns {object} Kết quả tạo assignment
+   */
+  async createAssignmentWithPlugin(courseId, assignmentData) {
+    try {
+      const params = {
+        courseid: courseId,
+        name: assignmentData.name,
+        intro: assignmentData.intro || '',
+        section: assignmentData.section || 0,
+        duedate: assignmentData.duedate || 0,
+        cutoffdate: assignmentData.cutoffdate || 0,
+        allowsubmissionsfromdate: assignmentData.allowsubmissionsfromdate || 0,
+        grade: assignmentData.grade || 100,
+        submissiondrafts: assignmentData.submissiondrafts || 0,
+        sendnotifications: assignmentData.sendnotifications || 0,
+        sendlatenotifications: assignmentData.sendlatenotifications || 0,
+        sendstudentnotifications: assignmentData.sendstudentnotifications !== undefined ? assignmentData.sendstudentnotifications : 1,
+        maxattempts: assignmentData.maxattempts || -1,
+        attemptreopenmethod: assignmentData.attemptreopenmethod || 'none',
+        assignsubmission_onlinetext_enabled: assignmentData.assignsubmission_onlinetext_enabled !== undefined ? assignmentData.assignsubmission_onlinetext_enabled : 1,
+        assignsubmission_file_enabled: assignmentData.assignsubmission_file_enabled !== undefined ? assignmentData.assignsubmission_file_enabled : 1,
+        assignsubmission_file_maxfiles: assignmentData.assignsubmission_file_maxfiles || 3,
+        assignsubmission_file_maxsizebytes: assignmentData.assignsubmission_file_maxsizebytes || 1048576,
+        assignfeedback_comments_enabled: assignmentData.assignfeedback_comments_enabled !== undefined ? assignmentData.assignfeedback_comments_enabled : 1,
+        assignfeedback_file_enabled: assignmentData.assignfeedback_file_enabled || 0
+      };
+
+      const result = await this.callWebService('local_assignmentapi_create_assignment', params);
+
+      // Kiểm tra response từ plugin
+      // Plugin trả về: { assignmentid, cmid, courseid, name, duedate, grade, message }
+      if (result && result.assignmentid) {
+        logger.info(`✓ Assignment created via plugin: "${assignmentData.name}" in course ${courseId} (Assignment ID: ${result.assignmentid})`);
+        return {
+          success: true,
+          assignmentid: result.assignmentid,
+          cmid: result.cmid,
+          courseId: result.courseid,
+          name: result.name,
+          duedate: result.duedate,
+          grade: result.grade,
+          message: result.message || 'Assignment created successfully'
+        };
+      } else if (result && result.exception) {
+        // Moodle trả về lỗi
+        throw new Error(`Moodle API Error: ${result.message || result.exception}`);
+      } else {
+        // Response không đúng định dạng
+        throw new Error(`Invalid response from plugin: ${JSON.stringify(result)}`);
+      }
+    } catch (error) {
+      logger.error(`✗ Error creating assignment via plugin in course ${courseId}:`, error.message);
+      throw error;
+    }
+  }
+
+
   // Lấy thông tin quiz từ plugin
   async getQuizInfo(quizId) {
     try {
@@ -728,8 +788,91 @@ class MoodleService {
     }
   }
 
+  async gradeAssignment(assignmentid, userid, grade, attemptnumber = -1) {
+    try {
+      const params = {
+        assignmentid,
+        userid,
+        grade,
+        attemptnumber,
+        addattempt: 0,
+        workflowstate: 'released',
+        applytoall: 0
+      };
+
+      const result = await this.callWebService('mod_assign_save_grade', params);
+
+      logger.debug('mod_assign_save_grade response:', result);
+
+      if (result === null || result === undefined ||
+          result.status === true ||
+          (Array.isArray(result) && result.length === 0) ||
+          (!Array.isArray(result) && Object.keys(result).length === 0)) {
+        logger.info(`✓ Graded assignment ${assignmentid} for user ${userid}: ${grade}`);
+        return {
+          success: true,
+          assignmentid,
+          userid,
+          grade,
+          message: 'Grade saved successfully'
+        };
+      } else {
+        throw new Error(`Unexpected Moodle response: ${JSON.stringify(result)}`);
+      }
+    } catch (error) {
+      logger.error(`✗ Error grading assignment ${assignmentid} for user ${userid}: ${error.message}`, {
+        stack: error.stack,
+        assignmentId: assignmentid,
+        userId: userid,
+        grade
+      });
+      throw error;
+    }
+  }
+
+
+  /**
+   * Lấy danh sách assignments trong course
+   * @param {number} courseId - Course ID
+   * @returns {array} Danh sách assignments
+   */
+  async getAssignments(courseId) {
+    try {
+      logger.info(`Getting assignments for course ${courseId}...`);
+
+      // Luôn enroll user vào course với role teacher trước để đảm bảo có quyền truy cập
+      try {
+        const siteInfo = await this.callWebService('core_webservice_get_site_info', {});
+        const currentUserId = siteInfo.userid;
+        await this.callWebService('enrol_manual_enrol_users', {
+          'enrolments[0][roleid]': 3, // Teacher roleFV
+          'enrolments[0][userid]': currentUserId,
+          'enrolments[0][courseid]': courseId
+        });
+      } catch (enrollError) {
+        logger.warn(`Could not enroll user in course ${courseId}, proceeding anyway:`, enrollError.message);
+      }
+
+      // Lấy assignments
+      const result = await this.callWebService('mod_assign_get_assignments', {
+        courseids: [courseId]
+      });
+
+      if (result && result.courses && result.courses.length > 0) {
+        logger.info(`Found ${result.courses[0].assignments?.length || 0} assignments in course ${courseId}`);
+        return result.courses[0].assignments || [];
+      }
+
+      logger.info(`No courses found in result for course ${courseId}`);
+      return [];
+    } catch (error) {
+      logger.error(`Error getting assignments for course ${courseId}:`, error);
+      throw error;
+    }
+  }
+
   // ==================== SECTION API PLUGIN ====================
-  
+
   /**
    * Tạo section mới sử dụng plugin local_sectionapi
    * @param {number} courseId - ID của course
@@ -739,14 +882,14 @@ class MoodleService {
   async createSectionWithPlugin(courseId, sectionData) {
     try {
       logger.info(`Creating section with plugin for course ${courseId}: ${sectionData.name}`);
-      
+
       const result = await this.callWebService('local_sectionapi_create_section', {
         courseid: courseId,
         name: sectionData.name,
         summary: sectionData.summary || '',
         visible: sectionData.visible !== undefined ? sectionData.visible : 1,
         position: sectionData.position || 0  // 0 = thêm vào cuối
-      },'f797545faa469cde6f999b2f2e191cc1');
+      }, 'f797545faa469cde6f999b2f2e191cc1');
 
       if (result && result.sectionid) {
         logger.info(`Section created successfully: ${result.name} (ID: ${result.sectionid}, Section: ${result.section})`);
@@ -779,13 +922,13 @@ class MoodleService {
       const params = {
         sectionid: sectionId
       };
-      
+
       if (updateData.name !== undefined) params.name = updateData.name;
       if (updateData.summary !== undefined) params.summary = updateData.summary;
       if (updateData.visible !== undefined) params.visible = updateData.visible;
 
       const result = await this.callWebService('local_sectionapi_update_section', params);
-      
+
       if (result && result.success) {
         logger.info(`Section updated successfully: ${sectionId}`);
         return result;
@@ -807,7 +950,7 @@ class MoodleService {
         sectionid: sectionId,
         forcedelete: forceDelete
       });
-      
+
       if (result && result.success) {
         logger.info(`Section deleted successfully: ${sectionId}`);
         return result;
@@ -829,7 +972,7 @@ class MoodleService {
       const result = await this.callWebService('local_sectionapi_get_course_sections', {
         courseid: courseId
       });
-      
+
       if (Array.isArray(result)) {
         logger.info(`Retrieved ${result.length} sections for course ${courseId}`);
         return result;
@@ -843,7 +986,7 @@ class MoodleService {
   }
 
   // ==================== QUESTION API PLUGIN ====================
-  
+
   /**
    * Tạo câu hỏi mới sử dụng plugin local_questionapi
    * @param {number} courseId - ID của course
@@ -853,7 +996,7 @@ class MoodleService {
   async createQuestionWithPlugin(courseId, questionData) {
     try {
       logger.info(`Creating question with plugin for course ${courseId}: ${questionData.name}`);
-      
+
       const result = await this.callWebService('local_questionapi_create_question', {
         courseid: courseId,
         categoryid: questionData.categoryid || 0,
@@ -894,14 +1037,14 @@ class MoodleService {
   async addQuestionToQuizWithPlugin(quizId, questionId, page = 1, maxmark = 1.0) {
     try {
       logger.info(`Adding question ${questionId} to quiz ${quizId}`);
-      
+
       const result = await this.callWebService('local_questionapi_add_question_to_quiz', {
         quizid: quizId,
         questionid: questionId,
         page: page,
         maxmark: maxmark
       });
-      
+
       if (result && result.success) {
         logger.info(`Question added to quiz successfully`);
         return result;
@@ -920,7 +1063,7 @@ class MoodleService {
   async createAndAddQuestionToQuiz(quizId, questionData) {
     try {
       logger.info(`Creating and adding question to quiz ${quizId}: ${questionData.name}`);
-      
+
       const result = await this.callWebService('local_questionapi_create_and_add_question', {
         quizid: quizId,
         questiontype: questionData.questiontype || 'multichoice',
@@ -929,8 +1072,8 @@ class MoodleService {
         defaultmark: questionData.defaultmark || 1.0,
         answers: JSON.stringify(questionData.answers || []),
         page: questionData.page || 1
-      },'f797545faa469cde6f999b2f2e191cc1');
-      
+      }, 'f797545faa469cde6f999b2f2e191cc1');
+
       if (result && result.success) {
         logger.info(`Question created and added to quiz successfully: ${result.name} (ID: ${result.questionid})`);
         return {

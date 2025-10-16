@@ -65,7 +65,7 @@ class SyncToMoodleService {
 
       // Lấy danh sách sections hiện có
       const existingSections = await moodleService.getCourseContents(courseId);
-      
+
       // Xác định sections cần có dựa trên loại khóa học
       let requiredSections = [];
       if (courseInfo.SoTietThucHanh < courseInfo.SoTietLyThuyet) {
@@ -94,7 +94,7 @@ class SyncToMoodleService {
         const requiredSection = requiredSections[i];
         // Section index bắt đầu từ 1 (0 là General section)
         const sectionIndex = i + 1;
-        
+
         // Tìm section tương ứng trong existingSections
         let existingSection = existingSections.find(s => s.section === sectionIndex);
 
@@ -148,7 +148,7 @@ class SyncToMoodleService {
       const midtermSection = sections[4]; // Index 4 = Section 5
       if (midtermSection) {
         // Check nếu có modules array và có quiz
-        const hasMidtermQuiz = midtermSection.modules && midtermSection.modules.length > 0 
+        const hasMidtermQuiz = midtermSection.modules && midtermSection.modules.length > 0
           ? midtermSection.modules.some(m => m.modname === 'quiz' && m.name.toLowerCase().includes('giữa'))
           : false;
 
@@ -178,35 +178,36 @@ class SyncToMoodleService {
         syncLogger.warn(`Midterm section (index 4) not found for course ${courseId}`);
       }
 
-      // Kiểm tra section 6 (Kiểm tra cuối kì) có quiz chưa
+      // Kiểm tra section 6 (Kiểm tra cuối kì) có assignment chưa
       const finalSection = sections[5]; // Index 5 = Section 6
       if (finalSection) {
-        // Check nếu có modules array và có quiz
-        const hasFinalQuiz = finalSection.modules && finalSection.modules.length > 0
-          ? finalSection.modules.some(m => m.modname === 'quiz' && m.name.toLowerCase().includes('cuối'))
+        // Check nếu có modules array và có assignment
+        const hasFinalAssignment = finalSection.modules && finalSection.modules.length > 0
+          ? finalSection.modules.some(m => m.modname === 'assign' && m.name.toLowerCase().includes('cuối'))
           : false;
 
-        if (!hasFinalQuiz) {
-          syncLogger.info(`Creating final quiz for course ${courseId} in section ${finalSection.section}`);
+        if (!hasFinalAssignment) {
+          syncLogger.info(`Creating final assignment for course ${courseId} in section ${finalSection.section}`);
           try {
-            const finalQuiz = await moodleService.createQuizWithPlugin(courseId, {
-              name: 'Bài kiểm tra cuối kỳ',
-              intro: '<p>Bài kiểm tra cuối kỳ</p>',
+            const finalAssignment = await moodleService.createAssignmentWithPlugin(courseId, {
+              name: 'Bài tập cuối kỳ',
+              intro: '<p>Bài tập cuối kỳ - Nộp báo cáo và code</p>',
               section: finalSection.section,
-              timeopen: Math.floor(Date.now() / 1000),
-              timeclose: Math.floor(Date.now() / 1000) + 7 * 24 * 3600,
-              timelimit: 1800,
-              attempts: 2,
-              grademethod: 1,
+              duedate: Math.floor(Date.now() / 1000) + 14 * 24 * 3600, // 2 tuần
+              cutoffdate: Math.floor(Date.now() / 1000) + 15 * 24 * 3600, // 15 ngày
               grade: 10,
-              visible: 1
+              assignsubmission_onlinetext_enabled: 1,
+              assignsubmission_file_enabled: 1,
+              assignsubmission_file_maxfiles: 5,
+              assignsubmission_file_maxsizebytes: 10485760, // 10MB
+              assignfeedback_comments_enabled: 1
             });
-            syncLogger.info(`✓ Created final quiz for course ${courseId}: ${finalQuiz.quizId || 'unknown'}`);
-          } catch (quizError) {
-            syncLogger.error(`Failed to create final quiz for course ${courseId}:`, quizError);
+            syncLogger.info(`✓ Created final assignment for course ${courseId}: ${finalAssignment.assignmentid || 'unknown'}`);
+          } catch (assignmentError) {
+            syncLogger.error(`Failed to create final assignment for course ${courseId}:`, assignmentError);
           }
         } else {
-          syncLogger.info(`Final quiz already exists for course ${courseId}`);
+          syncLogger.info(`Final assignment already exists for course ${courseId}`);
         }
       } else {
         syncLogger.warn(`Final section (index 5) not found for course ${courseId}`);
@@ -423,7 +424,7 @@ class SyncToMoodleService {
               console.log(courseData.course_fullname)
               // Cập nhật course hiện có
               await moodleService.updateCourse(existingCourse.id, courseData);
-              
+
               // Kiểm tra và tạo sections nếu thiếu
               try {
                 await this.ensureCourseSections(existingCourse.id, course);
@@ -466,7 +467,7 @@ class SyncToMoodleService {
                   const section = await moodleService.createSectionWithPlugin(newCourse.id, sectionData);
                   createdSections.push(section);
                 }
-                
+
                 // Tạo quiz cho lớp lý thuyết
                 if (course.SoTietThucHanh < course.SoTietLyThuyet) {
                   // Kiểm tra sections đã tạo đủ chưa
@@ -492,23 +493,24 @@ class SyncToMoodleService {
                       syncLogger.error(`Failed to create midterm quiz for course ${newCourse.id}:`, quizError);
                     }
 
-                    // Tạo quiz cuối kỳ
+                    // Tạo assignment cuối kỳ
                     try {
-                      const finalQuiz = await moodleService.createQuizWithPlugin(newCourse.id, {
-                        name: 'Bài kiểm tra cuối kỳ',
-                        intro: '<p>Bài kiểm tra cuối kỳ</p>',
+                      const finalAssignment = await moodleService.createAssignmentWithPlugin(newCourse.id, {
+                        name: 'Bài tập cuối kỳ',
+                        intro: '<p>Bài tập cuối kỳ - Nộp báo cáo và code</p>',
                         section: createdSections[5].section,
-                        timeopen: Math.floor(Date.now() / 1000),
-                        timeclose: Math.floor(Date.now() / 1000) + 7 * 24 * 3600,
-                        timelimit: 1800,
-                        attempts: 2,
-                        grademethod: 1,
+                        duedate: Math.floor(Date.now() / 1000) + 14 * 24 * 3600, // 2 tuần
+                        cutoffdate: Math.floor(Date.now() / 1000) + 15 * 24 * 3600, // 15 ngày
                         grade: 10,
-                        visible: 1
+                        assignsubmission_onlinetext_enabled: 1,
+                        assignsubmission_file_enabled: 1,
+                        assignsubmission_file_maxfiles: 5,
+                        assignsubmission_file_maxsizebytes: 10485760, // 10MB
+                        assignfeedback_comments_enabled: 1
                       });
-                      syncLogger.info(`Created final quiz for course ${newCourse.id}: ${finalQuiz.quizId || 'unknown'}`);
-                    } catch (quizError) {
-                      syncLogger.error(`Failed to create final quiz for course ${newCourse.id}:`, quizError);
+                      syncLogger.info(`Created final assignment for course ${newCourse.id}: ${finalAssignment.assignmentid || 'unknown'}`);
+                    } catch (assignmentError) {
+                      syncLogger.error(`Failed to create final assignment for course ${newCourse.id}:`, assignmentError);
                     }
                   }
                 }
@@ -713,7 +715,7 @@ class SyncToMoodleService {
   // Đồng bộ tất cả dữ liệu
   async syncAllToMoodle() {
     try {
-      syncLogger.info('Starting full sync to Moodle');
+      syncLogger.info('Starting full sync to Moodle (students -> teachers -> courses -> enrollments -> grades)');
 
       const results = {
         students: null,
@@ -721,13 +723,14 @@ class SyncToMoodleService {
         courses: null,
         enrollments: null,
         teacherEnrollments: null,
+        grades: null,
         startTime: new Date(),
         endTime: null,
         success: true,
         totalErrors: 0
       };
 
-      // Đồng bộ theo thứ tự: students -> teachers -> courses -> student enrollments -> teacher enrollments
+      // Đồng bộ theo thứ tự: students -> teachers -> courses -> student enrollments -> teacher enrollments -> grades -> grades
       try {
         results.students = await this.syncStudentsToMoodle();
         results.totalErrors += results.students.errors;
@@ -766,6 +769,14 @@ class SyncToMoodleService {
       } catch (error) {
         results.success = false;
         results.teacherEnrollments = { success: false, error: error.message };
+      }
+
+      try {
+        results.grades = await this.syncAssignmentGrades();
+        results.totalErrors += results.grades.errors;
+      } catch (error) {
+        results.success = false;
+        results.grades = { success: false, error: error.message };
       }
 
       results.endTime = new Date();
@@ -1028,6 +1039,111 @@ class SyncToMoodleService {
     }
   }
 
-}
+  /**
+   * Đồng bộ điểm assignment từ SQL Server vào Moodle
+   * @returns {object} Kết quả đồng bộ
+   */
+  async syncAssignmentGrades() {
+    try {
+      syncLogger.info('🔄 Starting assignment grades synchronization...');
 
+      // 1. Lấy điểm từ SQL Server
+      const lastSync = this.lastSyncDate.grades;
+      const gradesFromDB = await databaseService.getGrades(lastSync);
+      syncLogger.info(`Found ${gradesFromDB.length} grade records from database${lastSync ? ` (since ${lastSync.toISOString()})` : ''}`);
+
+      if (gradesFromDB.length === 0) {
+        return {
+          success: true,
+          message: 'No grades to sync',
+          processed: 0,
+          synced: 0,
+          skipped: 0,
+          errors: 0
+        };
+      }
+
+      // 2. Xử lý từng bản ghi điểm
+      let processed = 0;
+      let synced = 0;
+      let skipped = 0;
+      let errors = 0;
+      const errorDetails = [];
+
+      for (const grade of gradesFromDB) {
+        try {
+          processed++;
+
+          // Tìm khóa học trong Moodle theo IdLopHocPhan (shortname)
+          const moodleCourse = await moodleService.getCourseByShortname(grade.IdLopHocPhan.toString());
+          if (!moodleCourse) {
+            syncLogger.warn(`⚠ Course not found: ${grade.IdLopHocPhan}`);
+            skipped++;
+            continue;
+          }
+
+          // Tìm assignment "Bài tập cuối kỳ" trong khóa học
+          const assignments = await moodleService.getAssignments(moodleCourse.id);
+          const finalAssignment = assignments.find(a => a.name && a.name.includes('cuối kỳ'));
+          if (!finalAssignment) {
+            syncLogger.warn(`⚠ Final assignment not found in course ${moodleCourse.id}`);
+            skipped++;
+            continue;
+          }
+
+          // Tìm sinh viên theo MaSinhVien (idnumber)
+          const moodleUser = await moodleService.getUserByIdNumber(grade.MaSinhVien);
+          if (!moodleUser) {
+            syncLogger.warn(`⚠ User not found: ${grade.MaSinhVien}`);
+            skipped++;
+            continue;
+          }
+
+          const moodleGrade = grade.DiemTongKet;
+
+          // Chấm điểm
+          await moodleService.gradeAssignment(finalAssignment.id, moodleUser.id, moodleGrade);
+
+          synced++;
+          syncLogger.info(`✓ Graded ${grade.MaSinhVien}: ${moodleGrade}/100 in ${moodleCourse.fullname}`);
+
+        } catch (error) {
+          syncLogger.error(`✗ Error grading ${grade.MaSinhVien}:`, error.message);
+          errors++;
+          errorDetails.push({
+            student: grade.MaSinhVien,
+            courseId: grade.IdLopHocPhan,
+            courseName: grade.TenMonHoc,
+            error: error.message
+          });
+        }
+      }
+
+      // 3. Tổng kết
+      const summary = {
+        success: errors < processed,
+        message: `Đồng bộ ${synced} điểm thành công từ ${processed} bản ghi`,
+        totalGrades: gradesFromDB.length,
+        gradesProcessed: processed,
+        gradesSynced: synced,
+        skipped: skipped,
+        errors: errors,
+        errorDetails: errorDetails.slice(0, 10),
+        timestamp: new Date().toISOString()
+      };
+
+      syncLogger.info('✅ Assignment grades sync completed', summary);
+
+      // Cập nhật thời gian last sync
+      this.lastSyncDate.grades = new Date();
+      this.saveLastSync();
+
+      return summary;
+
+    } catch (error) {
+      syncLogger.error('❌ Assignment grades sync failed:', error);
+      throw error;
+    }
+  }
+}
 export default new SyncToMoodleService();

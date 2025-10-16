@@ -226,6 +226,16 @@ router.post('/sync/create-final-quiz', asyncHandler(async (req, res) => {
   });
 }));
 
+// Đồng bộ điểm assignment từ SQL Server vào Moodle
+router.post('/sync/assignment-grades', asyncHandler(async (req, res) => {
+  const result = await syncToMoodleService.syncAssignmentGrades();
+  res.json({
+    success: result.success,
+    message: result.message,
+    data: result
+  });
+}));
+
 // Kiểm tra các functions Moodle Web Service có sẵn
 router.get('/moodle/functions', asyncHandler(async (req, res) => {
   const functions = await moodleService.getAllFunctions();

@@ -180,12 +180,13 @@ SELECT
  INNER JOIN dbo.TKB_LopHoc as lhoc ON lhoc.Id = mh.IDLopHoc
  INNER JOIN dbo.DM_Dot d WITH (NOLOCK) ON lhoc.IDDot = d.Id
  INNER JOIN  dbo.TKB_LopHocPhan as lhp ON lhp.IDMonHoc= mh.ID
+ WHERE lhoc.TenLopHoc LIKE '%66CS2%'
 `
       const parameters = {};
       if (lastSyncDate) {
-        query2 += `
-          WHERE lhoc.NgayCapNhat > @lastSyncDate 
-        `;
+        // query2 += `
+        //   WHERE lhoc.NgayCapNhat > @lastSyncDate 
+        // `;
         parameters.lastSyncDate = lastSyncDate;
       }
 
@@ -302,6 +303,41 @@ SELECT
     }
   }
 
+
+  async getGrades(lastSyncDate = null) {
+    try {
+      let query = `SELECT kq.IDSinhVien, 
+                    sv.MaSinhVien,
+                    sv.HoDem + ' '+sv.Ten as HoVaTen,
+                    kq.Id AS IDKetQuaHocTap, 
+                    kq.DiemTongKet, mh.TenMonHoc, 
+                    mh.MaMonHoc, 
+                    mh.Id AS IDMonHoc,
+                    lh.TenLopHoc, 
+                    lhp.Id AS IdLopHocPhan,
+                    kq.NgayCapNhat
+                  FROM dbo.TKB_LopHocPhan AS lhp 
+                  INNER JOIN dbo.DT_DangKyHocPhan AS dk ON lhp.Id = dk.IDLopHocPhan 
+                  INNER JOIN dbo.TKB_MonHoc AS mh ON lhp.IDMonHoc = mh.Id 
+                  INNER JOIN dbo.TKB_LopHoc AS lh ON mh.IDLopHoc = lh.Id 
+                  INNER JOIN dbo.DT_KetQuaHocTapMonHoc AS kq ON kq.IDLopHocPhan = lhp.Id AND kq.IDSinhVien = dk.IDSinhVien
+                  INNER JOIN dbo.DT_SinhVien AS sv ON kq.IDSinhVien = sv.Id
+                  WHERE (dk.IDTrangThaiDangKy IN (1, 2, 3)) AND lh.TenLopHoc LIKE '66CS2'
+`
+      const parameters = {};
+
+      if (lastSyncDate) {
+        query += ' AND gv.NgayCapNhat > @lastSyncDate';
+        parameters.lastSyncDate = lastSyncDate;
+      }
+      const result = await this.executeQuery(query, parameters);
+      return result.recordset;
+    } catch (error) {
+      logger.error('Error getting teachers from HRM_NUCE:', error);
+      throw error;
+    }
+  }
+
   // Cập nhật điểm từ Moodle
   async updateGrades(grades) {
     try {
@@ -313,30 +349,25 @@ SELECT
           const request = new sql.Request(transaction);
 
           const query = `
-            MERGE Grades AS target
-            USING (VALUES (@student_id, @course_id, @assignment_name, @grade, @max_grade, @grade_date, @moodle_grade_id)) 
-            AS source (student_id, course_id, assignment_name, grade, max_grade, grade_date, moodle_grade_id)
-            ON target.student_id = source.student_id 
-               AND target.course_id = source.course_id 
-               AND target.assignment_name = source.assignment_name
-            WHEN MATCHED THEN
-              UPDATE SET 
-                grade = source.grade,
-                max_grade = source.max_grade,
-                grade_date = source.grade_date,
-                moodle_grade_id = source.moodle_grade_id,
-                updated_at = GETDATE()
-            WHEN NOT MATCHED THEN
-              INSERT (student_id, course_id, assignment_name, grade, max_grade, grade_date, moodle_grade_id, created_at, updated_at)
-              VALUES (source.student_id, source.course_id, source.assignment_name, source.grade, source.max_grade, source.grade_date, source.moodle_grade_id, GETDATE(), GETDATE());
+           SELECT kq.IDSinhVien, 
+	sv.MaSinhVien,
+	sv.HoDem + ' '+sv.Ten as HoVaTen,
+	kq.Id AS IDKetQuaHocTap, 
+	kq.DiemTongKet, mh.TenMonHoc, 
+	mh.MaMonHoc, 
+	mh.Id AS IDMonHoc,
+	lh.TenLopHoc, 
+	lhp.Id AS IdLopHocPhan,
+	kq.NgayCapNhat
+FROM dbo.TKB_LopHocPhan AS lhp 
+INNER JOIN dbo.DT_DangKyHocPhan AS dk ON lhp.Id = dk.IDLopHocPhan 
+INNER JOIN dbo.TKB_MonHoc AS mh ON lhp.IDMonHoc = mh.Id 
+INNER JOIN dbo.TKB_LopHoc AS lh ON mh.IDLopHoc = lh.Id 
+INNER JOIN dbo.DT_KetQuaHocTapMonHoc AS kq ON kq.IDLopHocPhan = lhp.Id AND kq.IDSinhVien = dk.IDSinhVien
+INNER JOIN dbo.DT_SinhVien AS sv ON kq.IDSinhVien = sv.Id
+WHERE (dk.IDTrangThaiDangKy IN (1, 2, 3)) AND lh.TenLopHoc LIKE '66CS2'
           `;
-          request.input('student_id', sql.Int, grade.student_id);
-          request.input('course_id', sql.Int, grade.course_id);
-          request.input('assignment_name', sql.NVarChar, grade.assignment_name);
-          request.input('grade', sql.Decimal(5, 2), grade.grade);
-          request.input('max_grade', sql.Decimal(5, 2), grade.max_grade);
-          request.input('grade_date', sql.DateTime, grade.grade_date);
-          request.input('moodle_grade_id', sql.Int, grade.moodle_grade_id);
+
 
           await request.query(query);
         }
