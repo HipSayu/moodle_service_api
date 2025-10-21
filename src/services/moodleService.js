@@ -41,6 +41,7 @@ class MoodleService {
   }
 
   // Tạo user trong Moodle
+  // Done
   async createUser(userData) {
     try {
       const user = {
@@ -78,6 +79,7 @@ class MoodleService {
   }
 
   // Cập nhật user trong Moodle
+  // Done
   async updateUser(userId, userData) {
     try {
       const updateData = {
@@ -132,7 +134,8 @@ class MoodleService {
       throw error;
     }
   }
-
+  // tìm kiếm người dùng bằng idNumber
+  //Done
   async getUserByIdNumber(idNumber) {
     try {
       const result = await this.callWebService('core_user_get_users', {
@@ -189,6 +192,7 @@ class MoodleService {
   }
 
   // Tạo course trong Moodle
+  // DONE
   async createCourse(courseData) {
     try {
       const course = {
@@ -228,6 +232,7 @@ class MoodleService {
   }
 
   // Cập nhật course trong Moodle
+  // DONE
   async updateCourse(courseId, courseData) {
     try {
       const updateData = {
@@ -271,6 +276,7 @@ class MoodleService {
   }
 
   // Tìm course theo shortname
+  // DONE
   async getCourseByShortname(shortname) {
     try {
       const result = await this.callWebService('core_course_get_courses_by_field', {
@@ -311,6 +317,7 @@ class MoodleService {
   }
 
   // Đăng ký user vào course
+  // DONE
   async enrollUserToCourse(userId, courseId, roleId = 5, moodleUser, moodleCourse) {
     try {
       // roleId = 5 is student role by default
@@ -329,6 +336,7 @@ class MoodleService {
   }
 
   // Đăng ký teacher vào course
+  // DONE
   async enrollTeacherToCourse(userId, courseId, roleId = 3, moodleUser, moodleCourse) {
     try {
       // roleId = 3 is editing teacher role by default
@@ -467,6 +475,7 @@ class MoodleService {
   }
 
   // Tìm category theo tên
+  // DONE
   async getCategoryByName(name) {
     try {
       const categories = await this.getCategories();
@@ -478,6 +487,7 @@ class MoodleService {
   }
 
   // Tìm category theo idnumber
+  // DONE
   async getCategoryByIdNumber(idnumber) {
     try {
       const categories = await this.getCategories();
@@ -578,6 +588,7 @@ class MoodleService {
   }
 
   // Lấy danh sách tất cả functions
+  // DONE
   async getAllFunctions() {
     try {
       const result = await this.callWebService('core_webservice_get_site_info', {});
@@ -592,6 +603,7 @@ class MoodleService {
   }
 
   // Kiểm tra quyền của user Moodle
+  // DONE
   async checkUserCapabilities() {
     try {
       const result = await this.callWebService('core_webservice_get_site_info', {});
@@ -648,6 +660,7 @@ class MoodleService {
     return response.data;
   }
 
+  //DONE
   /**
    * Tạo quiz sử dụng custom plugin local_quizapi
    * @param {number} courseId - ID của khóa học
@@ -704,6 +717,7 @@ class MoodleService {
    * @param {object} assignmentData - Dữ liệu assignment
    * @returns {object} Kết quả tạo assignment
    */
+  //DONE
   async createAssignmentWithPlugin(courseId, assignmentData) {
     try {
       const params = {
@@ -872,6 +886,7 @@ class MoodleService {
   }
 
   // ==================== SECTION API PLUGIN ====================
+  // DONE
 
   /**
    * Tạo section mới sử dụng plugin local_sectionapi

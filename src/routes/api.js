@@ -49,15 +49,6 @@ router.post('/sync/students', asyncHandler(async (req, res) => {
 }));
 
 
-// router.post('/sync/students-test', asyncHandler(async (req, res) => {
-//   const result = await syncToMoodleService.testStudentToMoodle();
-//   res.json({
-//     success: true,
-//     message: 'Student sync completed',
-//     data: result
-//   });
-// }));
-
 
 // Đồng bộ giảng viên từ SQL Server sang Moodle
 // Done
@@ -69,6 +60,7 @@ router.post('/sync/teachers', asyncHandler(async (req, res) => {
     data: result
   });
 }));
+
 // Đồng bộ category từ SQL Server sang Moodle
 // Done
 router.post('/sync/category', asyncHandler(async (req, res) => {
@@ -84,6 +76,7 @@ router.post('/sync/category', asyncHandler(async (req, res) => {
 
 
 // Đồng bộ khóa học từ SQL Server sang Moodle
+//Done
 router.post('/sync/courses', asyncHandler(async (req, res) => {
   const result = await syncToMoodleService.syncCoursesToMoodle();
   res.json({
@@ -94,6 +87,7 @@ router.post('/sync/courses', asyncHandler(async (req, res) => {
 }));
 
 // Đồng bộ đăng ký khóa học từ SQL Server sang Moodle
+//Done
 router.post('/sync/enrollments-students', asyncHandler(async (req, res) => {
   const result = await syncToMoodleService.syncEnrollmentsStudentToMoodle();
   res.json({
@@ -104,6 +98,7 @@ router.post('/sync/enrollments-students', asyncHandler(async (req, res) => {
 }));
 
 // Đồng bộ đăng ký giảng viên vào khóa học từ SQL Server sang Moodle
+// Done
 router.post('/sync/enrollments-teachers', asyncHandler(async (req, res) => {
   const result = await syncToMoodleService.syncTeacherEnrollmentsToMoodle();
   res.json({
@@ -112,6 +107,60 @@ router.post('/sync/enrollments-teachers', asyncHandler(async (req, res) => {
     data: result
   });
 }));
+
+
+// Đồng bộ tất cả dữ liệu từ SQL Server sang Moodle
+//Done
+router.post('/sync/all-to-moodle', asyncHandler(async (req, res) => {
+  const result = await syncToMoodleService.syncAllToMoodle();
+  res.json({
+    success: true,
+    message: 'Full sync to Moodle completed',
+    data: result
+  });
+}));
+
+// Đồng bộ điểm assignment từ SQL Server vào Moodle
+//Done
+router.post('/sync/assignment-grades', asyncHandler(async (req, res) => {
+  const result = await syncToMoodleService.syncAssignmentGrades();
+  res.json({
+    success: result.success,
+    message: result.message,
+    data: result
+  });
+}));
+
+
+
+// Kiểm tra quyền của user Moodle
+//Done
+router.get('/moodle/user-info', asyncHandler(async (req, res) => {
+  const userInfo = await moodleService.checkUserCapabilities();
+  res.json({
+    success: true,
+    message: 'Moodle user capabilities retrieved',
+    data: userInfo
+  });
+}));
+
+// Kiểm tra các functions Moodle Web Service có sẵn
+// Done
+router.get('/moodle/functions', asyncHandler(async (req, res) => {
+  const functions = await moodleService.getAllFunctions();
+  res.json({
+    success: true,
+    message: 'Moodle Web Service functions retrieved',
+    data: functions,
+    count: functions.length
+  });
+}));
+
+
+
+//---------------------------------------------------------------------------------------------------------------------------------
+// Đang phát triển
+// ---------------------------------------------------------------------------------------------------
 
 // Đồng bộ điểm từ Moodle về SQL Server
 router.post('/sync/grades', asyncHandler(async (req, res) => {
@@ -134,6 +183,7 @@ router.post('/sync/grades/:courseCode', asyncHandler(async (req, res) => {
   });
 }));
 
+
 // Đồng bộ điểm cho một sinh viên cụ thể
 router.post('/sync/student-grades/:studentCode', asyncHandler(async (req, res) => {
   const { studentCode } = req.params;
@@ -145,15 +195,7 @@ router.post('/sync/student-grades/:studentCode', asyncHandler(async (req, res) =
   });
 }));
 
-// Đồng bộ tất cả dữ liệu từ SQL Server sang Moodle
-router.post('/sync/all-to-moodle', asyncHandler(async (req, res) => {
-  const result = await syncToMoodleService.syncAllToMoodle();
-  res.json({
-    success: true,
-    message: 'Full sync to Moodle completed',
-    data: result
-  });
-}));
+
 
 // Đồng bộ tất cả (bao gồm cả điểm từ Moodle về)
 router.post('/sync/all', asyncHandler(async (req, res) => {
@@ -226,36 +268,7 @@ router.post('/sync/create-final-quiz', asyncHandler(async (req, res) => {
   });
 }));
 
-// Đồng bộ điểm assignment từ SQL Server vào Moodle
-router.post('/sync/assignment-grades', asyncHandler(async (req, res) => {
-  const result = await syncToMoodleService.syncAssignmentGrades();
-  res.json({
-    success: result.success,
-    message: result.message,
-    data: result
-  });
-}));
 
-// Kiểm tra các functions Moodle Web Service có sẵn
-router.get('/moodle/functions', asyncHandler(async (req, res) => {
-  const functions = await moodleService.getAllFunctions();
-  res.json({
-    success: true,
-    message: 'Moodle Web Service functions retrieved',
-    data: functions,
-    count: functions.length
-  });
-}));
-
-// Kiểm tra quyền của user Moodle
-router.get('/moodle/user-info', asyncHandler(async (req, res) => {
-  const userInfo = await moodleService.checkUserCapabilities();
-  res.json({
-    success: true,
-    message: 'Moodle user capabilities retrieved',
-    data: userInfo
-  });
-}));
 
 // Test tạo quiz trong một course cụ thể
 router.post('/test/create-quiz/:courseId', asyncHandler(async (req, res) => {

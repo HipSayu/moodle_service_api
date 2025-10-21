@@ -54,11 +54,152 @@ class SyncToMoodleService {
     }
   }
 
+
+
+  //Done Đồng bộ sinh viên
+  async syncStudentsToMoodle() {
+    try {
+      const lastSync = this.lastSyncDate.students;
+      syncLogger.info('Starting student sync to Moodle');
+      const students = await databaseService.getStudents(lastSync);
+      let syncCount = 0;
+      let errorCount = 0;
+      const errors = [];
+      for (const student of students) {
+        try {
+          await retryOperation(async () => {
+            const existingUser = await moodleService.getUserByIdNumber(student.MaSinhVien);
+
+            const userData = {
+              username: student.MaSinhVien,
+              first_name: student.HoDem,
+              last_name: student.Ten,
+              email: student.Email,
+              city: student.NguyenQuan || "HN",
+              idnumber: student.MaSinhVien,
+              password: student.MaSinhVien,
+            };
+            if (existingUser) {
+              console.log(`user đã tồn tại ${userData.first_name} ${userData.last_name}`)
+              await moodleService.updateUser(existingUser.id, userData);
+            } else {
+              await moodleService.createUser(userData);
+              console.log(`Tạo user Mới ${userData.first_name} ${userData.last_name}`)
+            }
+
+            syncCount++;
+          }, 3, 2000);
+        } catch (error) {
+          syncLogger.error(`Failed to sync student ${student.MaSinhVien}:`, error);
+        }
+      }
+      this.lastSyncDate.students = new Date();
+      this.saveLastSync();
+
+      syncLogger.info('Student sync to Moodle completed', {
+        totalStudents: students.length,
+        syncCount,
+        errorCount,
+        errors: errors.slice(0, 10)
+      });
+
+      return {
+        success: true,
+        total: students.length,
+        synced: syncCount,
+        errors: errorCount,
+        errorDetails: errors
+      };
+    }
+    catch (error) {
+      syncLogger.error('Student sync to Moodle failed:', error);
+      throw error;
+    }
+  }
+
+
+
+   //Done
+   // Đồng bộ Giảng Viên 
+  async syncTeachersToMoodle() {
+    try {
+      syncLogger.info('Starting teacher sync to Moodle');
+
+      const lastSync = this.lastSyncDate.teachers;
+      const teachers = await databaseService.getTeachers(lastSync);
+
+      let syncCount = 0;
+      let errorCount = 0;
+      const errors = [];
+
+      for (const teacher of teachers) {
+        try {
+          await retryOperation(async () => {
+            // Kiểm tra user đã tồn tại chưa
+            const existingUser = await moodleService.getUserByIdNumber(teacher.MaNhanSu);
+
+            const userData = {
+              username: teacher.MaNhanSu,
+              first_name: teacher.HoDem,
+              last_name: teacher.Ten,
+              email: teacher.Email && teacher.Email.trim() !== "" ? teacher.Email.trim() : `${teacher.MaNhanSu}@huce.edu.vn`,
+              city: teacher.NguyenQuan && teacher.NguyenQuan.trim() !== "" ? teacher.NguyenQuan.trim() : "Hanoi",
+              idnumber: teacher.MaNhanSu,
+              password: teacher.MaNhanSu,
+            };
+
+            if (existingUser) {
+              console.log('-----------------------')
+              syncLogger.info('teacher đã tồn tại')
+              await moodleService.updateUser(existingUser.id, userData);
+              console.log(`Đã update ${teacher.HoDem} ${teacher.Ten}`)
+            } else {
+              console.log('-----------------------')
+              syncLogger.info("Tạo teacher Mới")
+              const newUser = await moodleService.createUser(userData);
+              console.log(`Đã thêm ${teacher.HoDem} ${teacher.Ten}`)
+            }
+            syncCount++;
+          }, 3, 2000);
+        } catch (error) {
+          errorCount++;
+          errors.push({
+            teacher_code: teacher.teacher_code,
+            error: error.message
+          });
+          syncLogger.error(`Failed to sync teacher ${teacher.teacher_code}:`, error);
+        }
+      }
+
+      this.lastSyncDate.teachers = new Date();
+      this.saveLastSync();
+
+      syncLogger.info('Teacher sync to Moodle completed', {
+        totalTeachers: teachers.length,
+        syncCount,
+        errorCount,
+        errors: errors.slice(0, 10)
+      });
+
+      return {
+        success: true,
+        total: teachers.length,
+        synced: syncCount,
+        errors: errorCount,
+        errorDetails: errors
+      };
+    } catch (error) {
+      syncLogger.error('Teacher sync to Moodle failed:', error);
+      throw error;
+    }
+  }
+
   /**
    * Đảm bảo course có đủ sections, nếu thiếu thì tạo thêm
    * @param {number} courseId - Moodle Course ID
    * @param {object} courseInfo - Thông tin khóa học từ database
    */
+  // DONE
   async ensureCourseSections(courseId, courseInfo) {
     try {
       syncLogger.info(`Checking sections for course ${courseId}`);
@@ -218,160 +359,11 @@ class SyncToMoodleService {
     }
   }
 
-  //Done
-  async syncStudentsToMoodle() {
-    try {
-      const lastSync = this.lastSyncDate.students;
-      syncLogger.info('Starting student sync to Moodle');
-      const students = await databaseService.getStudents(lastSync);
-      let syncCount = 0;
-      let errorCount = 0;
-      const errors = [];
-      for (const student of students) {
-        try {
-          await retryOperation(async () => {
-            const existingUser = await moodleService.getUserByIdNumber(student.MaSinhVien);
-
-            const userData = {
-              username: student.MaSinhVien,
-              first_name: student.HoDem,
-              last_name: student.Ten,
-              email: student.Email,
-              city: student.NguyenQuan || "HN",
-              idnumber: student.MaSinhVien,
-              password: student.MaSinhVien,
-            };
-            if (existingUser) {
-              console.log(`user đã tồn tại ${userData.first_name} ${userData.last_name}`)
-              await moodleService.updateUser(existingUser.id, userData);
-            } else {
-              await moodleService.createUser(userData);
-              console.log(`Tạo user Mới ${userData.first_name} ${userData.last_name}`)
-            }
-
-            syncCount++;
-          }, 3, 2000);
-        } catch (error) {
-          syncLogger.error(`Failed to sync student ${student.MaSinhVien}:`, error);
-        }
-      }
-      this.lastSyncDate.students = new Date();
-      this.saveLastSync();
-
-      syncLogger.info('Student sync to Moodle completed', {
-        totalStudents: students.length,
-        syncCount,
-        errorCount,
-        errors: errors.slice(0, 10)
-      });
-
-      return {
-        success: true,
-        total: students.length,
-        synced: syncCount,
-        errors: errorCount,
-        errorDetails: errors
-      };
-    }
-    catch (error) {
-      syncLogger.error('Student sync to Moodle failed:', error);
-      throw error;
-    }
-  }
-  //Done
-  async syncTeachersToMoodle() {
-    try {
-      syncLogger.info('Starting teacher sync to Moodle');
-
-      const lastSync = this.lastSyncDate.teachers;
-      const teachers = await databaseService.getTeachers(lastSync);
-
-      let syncCount = 0;
-      let errorCount = 0;
-      const errors = [];
-
-      for (const teacher of teachers) {
-        try {
-          await retryOperation(async () => {
-            // Kiểm tra user đã tồn tại chưa
-            const existingUser = await moodleService.getUserByIdNumber(teacher.MaNhanSu);
-
-            const userData = {
-              username: teacher.MaNhanSu,
-              first_name: teacher.HoDem,
-              last_name: teacher.Ten,
-              email: teacher.Email && teacher.Email.trim() !== "" ? teacher.Email.trim() : `${teacher.MaNhanSu}@huce.edu.vn`,
-              city: teacher.NguyenQuan && teacher.NguyenQuan.trim() !== "" ? teacher.NguyenQuan.trim() : "Hanoi",
-              idnumber: teacher.MaNhanSu,
-              password: teacher.MaNhanSu,
-            };
-
-            if (existingUser) {
-              console.log('-----------------------')
-              syncLogger.info('teacher đã tồn tại')
-              await moodleService.updateUser(existingUser.id, userData);
-              console.log(`Đã update ${teacher.HoDem} ${teacher.Ten}`)
-            } else {
-              console.log('-----------------------')
-              syncLogger.info("Tạo teacher Mới")
-              const newUser = await moodleService.createUser(userData);
-              console.log(`Đã thêm ${teacher.HoDem} ${teacher.Ten}`)
-            }
-            // if (teacher.GiaoVien) {
-            //   if (existingUser) {
-            //     console.log('-----------------------')
-            //     syncLogger.info('teacher đã tồn tại')
-            //     await moodleService.updateUser(existingUser.id, userData);
-            //     console.log(`Đã update ${teacher.HoDem} ${teacher.Ten}`)
-            //   } else {
-            //     console.log('-----------------------')
-            //     syncLogger.info("Tạo teacher Mới")
-            //     const newUser = await moodleService.createUser(userData);
-            //     console.log(`Đã thêm ${teacher.HoDem} ${teacher.Ten}`)
-            //   }
-            // }
-            // else {
-            //   console.log('-----------------------')
-            //   console.log(`${teacher.HoDem} ${teacher.Ten}`)
-            //   syncLogger.info("Ko Phải là giảng viên")
-            // }
-            syncCount++;
-          }, 3, 2000);
-        } catch (error) {
-          errorCount++;
-          errors.push({
-            teacher_code: teacher.teacher_code,
-            error: error.message
-          });
-          syncLogger.error(`Failed to sync teacher ${teacher.teacher_code}:`, error);
-        }
-      }
-
-      this.lastSyncDate.teachers = new Date();
-      this.saveLastSync();
-
-      syncLogger.info('Teacher sync to Moodle completed', {
-        totalTeachers: teachers.length,
-        syncCount,
-        errorCount,
-        errors: errors.slice(0, 10)
-      });
-
-      return {
-        success: true,
-        total: teachers.length,
-        synced: syncCount,
-        errors: errorCount,
-        errorDetails: errors
-      };
-    } catch (error) {
-      syncLogger.error('Teacher sync to Moodle failed:', error);
-      throw error;
-    }
-  }
+  
+ 
 
   // Đồng bộ khóa học từ SQL Server sang Moodle
-  //Done
+  // Done
   async syncCoursesToMoodle() {
     try {
       syncLogger.info('Starting course sync to Moodle');
@@ -495,7 +487,8 @@ class SyncToMoodleService {
 
                     // Tạo assignment cuối kỳ
                     try {
-                      const finalAssignment = await moodleService.createAssignmentWithPlugin(newCourse.id, {
+                      const finalAssignment = await moodleService.createA
+                      ssignmentWithPlugin(newCourse.id, {
                         name: 'Bài tập cuối kỳ',
                         intro: '<p>Bài tập cuối kỳ - Nộp báo cáo và code</p>',
                         section: createdSections[5].section,
@@ -557,6 +550,7 @@ class SyncToMoodleService {
   }
 
   // Đồng bộ đăng ký khóa học
+  // DONE
   async syncEnrollmentsStudentToMoodle() {
     try {
       syncLogger.info('Starting enrollment sync to Moodle');
@@ -628,6 +622,7 @@ class SyncToMoodleService {
   }
 
   // Đồng bộ đăng ký giảng viên vào khóa học từ SQL Server sang Moodle
+  // DONE
   async syncTeacherEnrollmentsToMoodle() {
     try {
       syncLogger.info('Starting teacher enrollment sync to Moodle');
@@ -713,6 +708,14 @@ class SyncToMoodleService {
   }
 
   // Đồng bộ tất cả dữ liệu
+    // Đồng bộ theo thứ tự: 
+    // students -> 
+    // teachers ->
+    //  courses -> 
+    // student enrollments -> 
+    // teacher enrollments -> 
+    // grades 
+  // DONE
   async syncAllToMoodle() {
     try {
       syncLogger.info('Starting full sync to Moodle (students -> teachers -> courses -> enrollments -> grades)');
@@ -787,6 +790,8 @@ class SyncToMoodleService {
     }
   }
 
+  // Đồng bộ Categori bộ môn, khoa
+  // Done
   async syncCategoriesToMoodle(departmentData) {
     try {
       syncLogger.info('Starting category sync to Moodle');
@@ -1043,6 +1048,7 @@ class SyncToMoodleService {
    * Đồng bộ điểm assignment từ SQL Server vào Moodle
    * @returns {object} Kết quả đồng bộ
    */
+  // DONE
   async syncAssignmentGrades() {
     try {
       syncLogger.info('🔄 Starting assignment grades synchronization...');
