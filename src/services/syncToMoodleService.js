@@ -54,8 +54,6 @@ class SyncToMoodleService {
     }
   }
 
-
-
   //Done Đồng bộ sinh viên
   async syncStudentsToMoodle() {
     try {
@@ -77,7 +75,7 @@ class SyncToMoodleService {
               email: student.Email,
               city: student.NguyenQuan || "HN",
               idnumber: student.MaSinhVien,
-              password: student.MaSinhVien,
+              password: `${student.MaSinhVien}@Huce`,
             };
             if (existingUser) {
               console.log(`user đã tồn tại ${userData.first_name} ${userData.last_name}`)
@@ -405,7 +403,7 @@ class SyncToMoodleService {
               courseData = {
                 course_fullname: `${course.TenLopHoc} - ${course.TenMonHoc} - ${course.TenDot}`,
                 course_shortname: course.IDLopHocPhan,
-                course_categoryid: 134,
+                course_categoryid: 92,
                 course_idnumber: course.IDLopHocPhan
               };
             }
@@ -487,8 +485,7 @@ class SyncToMoodleService {
 
                     // Tạo assignment cuối kỳ
                     try {
-                      const finalAssignment = await moodleService.createA
-                      ssignmentWithPlugin(newCourse.id, {
+                      const finalAssignment = await moodleService.createAssignmentWithPlugin(newCourse.id, {
                         name: 'Bài tập cuối kỳ',
                         intro: '<p>Bài tập cuối kỳ - Nộp báo cáo và code</p>',
                         section: createdSections[5].section,

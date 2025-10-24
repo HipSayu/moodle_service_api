@@ -94,16 +94,16 @@ class DatabaseService {
                     sv.Email,
                     sv.NgayCapNhat AS DateUpdateSV,
                     lhoc.TenLopHoc
-                    FROM dbo.DT_DangKyHocPhan dkhp WITH (NOLOCK)
+                    FROMbo.DT_DangKyHocPhan dkhp WITH (NOLOCK)
                     INNER JOIN dbo.DT_SinhVien sv WITH (NOLOCK) ON sv.Id = dkhp.IDSinhVien
                     INNER JOIN dbo.TKB_LopHocPhan lhp WITH (NOLOCK) ON lhp.Id = dkhp.IDLopHocPhan
                     INNER JOIN dbo.TKB_MonHoc mh WITH (NOLOCK) ON mh.Id = lhp.IDMonHoc
                     INNER JOIN dbo.TKB_LopHoc lhoc WITH (NOLOCK) ON lhoc.Id = mh.IDLopHoc
-                    WHERE lhoc.TenLopHoc LIKE '%66CS2%' 
+                    WHERE sv.email LIKE '%70@st%' 
                   `;
       const parameters = {};
       if (lastSyncDate) {
-        query += " AND sv.NgayCapNhat > @lastSyncDate";
+        query += " AND sv.NgayCapN dhat > @lastSyncDate";
         parameters.lastSyncDate = lastSyncDate;
       }
       const result = await this.executeQuery(query, parameters);
@@ -167,7 +167,7 @@ class DatabaseService {
         INNER JOIN dbo.TKB_LopHoc as lhoc ON lhoc.Id = mh.IDLopHoc
         INNER JOIN dbo.DM_Dot d WITH (NOLOCK) ON lhoc.IDDot = d.Id
         INNER JOIN  dbo.TKB_LopHocPhan as lhp ON lhp.IDMonHoc= mh.ID
-        WHERE lhoc.TenLopHoc LIKE '%66CS2%'
+        WHERE lhoc.TenLopHoc LIKE '70CS1%' AND lhp.id = 387230
 `;
       const parameters = {};
       if (lastSyncDate) {
@@ -201,12 +201,12 @@ class DatabaseService {
         INNER JOIN dbo.DM_GiangVien gv WITH (NOLOCK) ON gv.Id = lhgv.IDGiangVien
         INNER JOIN dbo.TKB_MonHoc mh WITH (NOLOCK) ON mh.Id = lhp.IDMonHoc
         INNER JOIN dbo.TKB_LopHoc lhoc WITH (NOLOCK) ON lhoc.Id = mh.IDLopHoc
-        WHERE lhoc.TenLopHoc LIKE '%66CS2%'
+        
 `;
       const parameters = {};
 
       if (lastSyncDate) {
-        query += " AND gv.NgayCapNhat > @lastSyncDate";
+        query += "WHERE gv.NgayCapNhat > @lastSyncDate";
         parameters.lastSyncDate = lastSyncDate;
       }
       const result = await this.executeQuery(query, parameters);
@@ -222,7 +222,7 @@ class DatabaseService {
   async getStudentCourseEnrollments(courseId = null) {
     try {
       let query = `
-       SELECT DISTINCT
+        SELECT DISTINCT
         lhp.MaLopHocPhan,
         lhoc.TenLopHoc,
         mh.TenMonHoc,
@@ -234,7 +234,7 @@ class DatabaseService {
         INNER JOIN dbo.TKB_LopHocPhan lhp WITH (NOLOCK) ON lhp.Id = dkhp.IDLopHocPhan
         INNER JOIN dbo.TKB_MonHoc mh WITH (NOLOCK) ON mh.Id = lhp.IDMonHoc
         INNER JOIN dbo.TKB_LopHoc lhoc WITH (NOLOCK) ON lhoc.Id = mh.IDLopHoc
-        WHERE dkhp.IDTrangThaiDangKy IN (1,2,3)
+        WHERE dkhp.IDTrangThaiDangKy IN (1,2,3) AND lhoc.TenLopHoc LIKE '%70%'
       `;
       const parameters = {};
       if (courseId) {
@@ -263,6 +263,7 @@ class DatabaseService {
         INNER JOIN dbo.DM_GiangVien gv WITH (NOLOCK) ON gv.Id = lhgv.IDGiangVien
         INNER JOIN dbo.TKB_MonHoc mh WITH (NOLOCK) ON mh.Id = lhp.IDMonHoc
         INNER JOIN dbo.TKB_LopHoc lhoc WITH (NOLOCK) ON lhoc.Id = mh.IDLopHoc
+        WHERE lhoc.TenLopHoc LIKE '%70%'
       `;
       const parameters = {};
       if (courseId) {
@@ -295,7 +296,7 @@ class DatabaseService {
                   INNER JOIN dbo.TKB_LopHoc AS lh ON mh.IDLopHoc = lh.Id 
                   INNER JOIN dbo.DT_KetQuaHocTapMonHoc AS kq ON kq.IDLopHocPhan = lhp.Id AND kq.IDSinhVien = dk.IDSinhVien
                   INNER JOIN dbo.DT_SinhVien AS sv ON kq.IDSinhVien = sv.Id
-                  WHERE (dk.IDTrangThaiDangKy IN (1, 2, 3)) AND lh.TenLopHoc LIKE '66CS2'
+                  WHERE (dk.IDTrangThaiDangKy IN (1, 2, 3)) AND lh.TenLopHoc LIKE '70'
 `;
       const parameters = {};
 

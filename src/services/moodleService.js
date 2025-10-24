@@ -9,10 +9,6 @@ class MoodleService {
     this.service = config.moodle.service;
   }
 
-
-
-
-
   // Gọi Moodle Web Service API
   async callWebService(wsfunction, parameters = {}, tokenCreate = '') {
     try {
@@ -48,22 +44,22 @@ class MoodleService {
         username: (userData.email || `${userData.idnumber}@huce.edu.vn`).toLowerCase(),
         firstname: userData.first_name || "Lỗi dữ liệu",
         lastname: userData.last_name || "Lỗi dữ liệu",
-        email: userData.email || `${userData.idnumber}@huce.edu.vn`,
+        email: userData.email || `${userData.idnumber ?? Date.now()}@huce.edu.vn`,
         city: userData.city || "HN",
         idnumber: userData.idnumber || `no ${Date.now()}`,
         password: userData.password || 'DefaultPassword123!',
-        auth: 'manual'
+        auth: 'oauth2'
       };
 
       const result = await this.callWebService('core_user_create_users', {
-        'users[0][username]': user.username,
-        'users[0][firstname]': user.firstname,
-        'users[0][lastname]': user.lastname,
-        'users[0][email]': user.email,
-        'users[0][password]': user.password,
-        'users[0][auth]': user.auth || 'manual',
-        'users[0][idnumber]': user.idnumber,
-        'users[0][city]': user.city,
+        'users[0][username]': user.username|| '',
+        'users[0][firstname]': user.firstname||'',
+        'users[0][lastname]': user.lastname|| '',
+        'users[0][email]': user.email|| '',
+        'users[0][password]': user.password|| '',
+        'users[0][auth]': 'oauth2',
+        'users[0][idnumber]': user.idnumber || '',
+        'users[0][city]': user.city || '',
       });
 
       if (result && result.length > 0) {
@@ -88,7 +84,7 @@ class MoodleService {
         'users[0][firstname]': userData.first_name,
         'users[0][lastname]': userData.last_name,
         // 'users[0][email]': userData.email,
-        'users[0][auth]': userData.auth || 'manual',
+        'users[0][auth]':'oauth2',
         // 'users[0][idnumber]': userData.idnumber,
         'users[0][city]': userData.city || "",
       };
@@ -904,7 +900,7 @@ class MoodleService {
         summary: sectionData.summary || '',
         visible: sectionData.visible !== undefined ? sectionData.visible : 1,
         position: sectionData.position || 0  // 0 = thêm vào cuối
-      }, 'f797545faa469cde6f999b2f2e191cc1');
+      }, '9f7a6a274527529027a124c78c30a86c');
 
       if (result && result.sectionid) {
         logger.info(`Section created successfully: ${result.name} (ID: ${result.sectionid}, Section: ${result.section})`);
@@ -1087,7 +1083,7 @@ class MoodleService {
         defaultmark: questionData.defaultmark || 1.0,
         answers: JSON.stringify(questionData.answers || []),
         page: questionData.page || 1
-      }, 'f797545faa469cde6f999b2f2e191cc1');
+      }, '9f7a6a274527529027a124c78c30a86c');
 
       if (result && result.success) {
         logger.info(`Question created and added to quiz successfully: ${result.name} (ID: ${result.questionid})`);
