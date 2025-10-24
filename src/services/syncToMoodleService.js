@@ -262,10 +262,13 @@ class SyncToMoodleService {
         }
       }
 
-      // Nếu là lớp lý thuyết, kiểm tra và tạo quiz
+      // Nếu là lớp lý thuyết, kiểm tra và tạo quiz và assignment
       if (courseInfo.SoTietThucHanh < courseInfo.SoTietLyThuyet && createdSections.length >= 6) {
         await this.ensureCourseQuizzes(courseId, createdSections);
       }
+
+      // Tạo assignment cuối kỳ cho tất cả các khóa học (cả lý thuyết và thực hành)
+      await this.ensureCourseAssignments(courseId, courseInfo, createdSections);
 
       syncLogger.info(`✓ Course ${courseId} sections verified/created`);
       return createdSections;
@@ -357,7 +360,66 @@ class SyncToMoodleService {
     }
   }
 
-  
+  /**
+   * Đảm bảo course có assignment cuối kỳ
+   * @param {number} courseId - Moodle Course ID
+   * @param {object} courseInfo - Thông tin khóa học từ database
+   * @param {array} sections - Danh sách sections của course
+   */
+  async ensureCourseAssignments(courseId, courseInfo, sections) {
+    try {
+      // Xác định section để đặt assignment cuối kỳ
+      let assignmentSection;
+      let assignmentIntro;
+
+      if (courseInfo.SoTietThucHanh < courseInfo.SoTietLyThuyet) {
+        // Lớp lý thuyết: đặt assignment trong section "Kiểm tra cuối kì" (index 5)
+        assignmentSection = sections[5];
+        assignmentIntro = '<p>Bài tập cuối kỳ - Nộp báo cáo và code</p>';
+      } else {
+        // Lớp thực hành: đặt assignment trong section "Bảo vệ" (index 3)
+        assignmentSection = sections[3];
+        assignmentIntro = '<p>Bài tập cuối kỳ - Nộp báo cáo thực hành và code</p>';
+      }
+
+      if (!assignmentSection) {
+        syncLogger.warn(`Assignment section not found for course ${courseId}`);
+        return;
+      }
+
+      // Kiểm tra xem đã có assignment cuối kỳ chưa
+      const hasFinalAssignment = assignmentSection.modules && assignmentSection.modules.length > 0
+        ? assignmentSection.modules.some(m => m.modname === 'assign' && m.name.toLowerCase().includes('cuối'))
+        : false;
+
+      if (!hasFinalAssignment) {
+        syncLogger.info(`Creating final assignment for course ${courseId} in section ${assignmentSection.section}`);
+        try {
+          const finalAssignment = await moodleService.createAssignmentWithPlugin(courseId, {
+            name: 'Bài tập cuối kỳ',
+            intro: assignmentIntro,
+            section: assignmentSection.section,
+            duedate: Math.floor(Date.now() / 1000) + 14 * 24 * 3600, // 2 tuần
+            cutoffdate: Math.floor(Date.now() / 1000) + 15 * 24 * 3600, // 15 ngày
+            grade: 10,
+            assignsubmission_onlinetext_enabled: 1,
+            assignsubmission_file_enabled: 1,
+            assignsubmission_file_maxfiles: 5,
+            assignsubmission_file_maxsizebytes: 10485760, // 10MB
+            assignfeedback_comments_enabled: 1
+          });
+          syncLogger.info(`✓ Created final assignment for course ${courseId}: ${finalAssignment.assignmentid || 'unknown'}`);
+        } catch (assignmentError) {
+          syncLogger.error(`Failed to create final assignment for course ${courseId}:`, assignmentError);
+        }
+      } else {
+        syncLogger.info(`Final assignment already exists for course ${courseId}`);
+      }
+
+    } catch (error) {
+      syncLogger.error(`Failed to ensure assignments for course ${courseId}:`, error);
+    }
+  }
  
 
   // Đồng bộ khóa học từ SQL Server sang Moodle
@@ -458,11 +520,11 @@ class SyncToMoodleService {
                   createdSections.push(section);
                 }
 
-                // Tạo quiz cho lớp lý thuyết
+                // Tạo quiz cho lớp lý thuyết và assignment cho cả hai loại lớp
                 if (course.SoTietThucHanh < course.SoTietLyThuyet) {
-                  // Kiểm tra sections đã tạo đủ chưa
+                  // Lớp lý thuyết: tạo quiz giữa kỳ và assignment cuối kỳ
                   if (createdSections.length < 6) {
-                    syncLogger.warn(`Not enough sections created for course ${newCourse.id}. Expected 6, got ${createdSections.length}`);
+                    syncLogger.warn(`Not enough sections created for theory course ${newCourse.id}. Expected 6, got ${createdSections.length}`);
                   } else {
                     // Tạo quiz giữa kỳ
                     try {
@@ -498,9 +560,34 @@ class SyncToMoodleService {
                         assignsubmission_file_maxsizebytes: 10485760, // 10MB
                         assignfeedback_comments_enabled: 1
                       });
-                      syncLogger.info(`Created final assignment for course ${newCourse.id}: ${finalAssignment.assignmentid || 'unknown'}`);
+                      syncLogger.info(`Created final assignment for theory course ${newCourse.id}: ${finalAssignment.assignmentid || 'unknown'}`);
                     } catch (assignmentError) {
-                      syncLogger.error(`Failed to create final assignment for course ${newCourse.id}:`, assignmentError);
+                      syncLogger.error(`Failed to create final assignment for theory course ${newCourse.id}:`, assignmentError);
+                    }
+                  }
+                } else {
+                  // Lớp thực hành: tạo assignment cuối kỳ
+                  if (createdSections.length < 4) {
+                    syncLogger.warn(`Not enough sections created for practical course ${newCourse.id}. Expected 4, got ${createdSections.length}`);
+                  } else {
+                    // Tạo assignment cuối kỳ cho lớp thực hành
+                    try {
+                      const finalAssignment = await moodleService.createAssignmentWithPlugin(newCourse.id, {
+                        name: 'Bài tập cuối kỳ',
+                        intro: '<p>Bài tập cuối kỳ - Nộp báo cáo thực hành và code</p>',
+                        section: createdSections[3].section, // Section "Bảo vệ" (index 3)
+                        duedate: Math.floor(Date.now() / 1000) + 14 * 24 * 3600, // 2 tuần
+                        cutoffdate: Math.floor(Date.now() / 1000) + 15 * 24 * 3600, // 15 ngày
+                        grade: 10,
+                        assignsubmission_onlinetext_enabled: 1,
+                        assignsubmission_file_enabled: 1,
+                        assignsubmission_file_maxfiles: 5,
+                        assignsubmission_file_maxsizebytes: 10485760, // 10MB
+                        assignfeedback_comments_enabled: 1
+                      });
+                      syncLogger.info(`Created final assignment for practical course ${newCourse.id}: ${finalAssignment.assignmentid || 'unknown'}`);
+                    } catch (assignmentError) {
+                      syncLogger.error(`Failed to create final assignment for practical course ${newCourse.id}:`, assignmentError);
                     }
                   }
                 }
