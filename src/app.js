@@ -159,7 +159,7 @@ class App {
       // Initialize database
       await this.initializeDatabase();
       // Initialize scheduler
-      // await this.initializeScheduler(); // Tắt tự động đồng bộ
+      await this.initializeScheduler(); // Tắt tự động đồng bộ
 
       logger.info('Application initialized successfully');
     } catch (error) {
@@ -194,9 +194,9 @@ class App {
       logger.info('Shutting down server...');
 
       // Stop scheduler
-      // if (schedulerService) {
-      //   schedulerService.stop();
-      // }
+      if (schedulerService) {
+        schedulerService.stop();
+      }
 
       // Close database connection
       if (databaseService) {

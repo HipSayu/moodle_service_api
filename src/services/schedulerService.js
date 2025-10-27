@@ -153,7 +153,7 @@ class SchedulerService {
       this.setRunningFlag('syncAllToMoodle', true);
       syncLogger.info('Starting scheduled sync all to Moodle');
 
-      const result = await syncToMoodleService.syncAllToMoodle();
+      const result = await syncToMoodleService.syncAllToMoodleDaily();
 
       syncLogger.info('Scheduled sync all to Moodle completed successfully', result);
       return result;

@@ -798,14 +798,115 @@ class SyncToMoodleService {
     }
   }
 
+  // Đồng bộ tất cả dữ liệu hàng ngày (không bao gồm grades)
+  // Đồng bộ theo thứ tự:
+  // students -> teachers -> courses -> student enrollments -> teacher enrollments
+  // Chạy mỗi ngày một lần
+  async syncAllToMoodleDaily() {
+    try {
+      // Kiểm tra xem đã chạy hôm nay chưa
+      const today = new Date();
+      today.setHours(0, 0, 0, 0); // Reset về đầu ngày
+
+      const lastRun = this.lastSyncDate.dailySync;
+      if (lastRun) {
+        const lastRunDate = new Date(lastRun);
+        lastRunDate.setHours(0, 0, 0, 0);
+
+        if (lastRunDate.getTime() === today.getTime()) {
+          syncLogger.info('Daily sync already ran today, skipping...');
+          return {
+            success: true,
+            message: 'Daily sync already completed today',
+            skipped: true
+          };
+        }
+      }
+
+      syncLogger.info('Starting daily sync to Moodle (students -> teachers -> courses -> enrollments)');
+
+      const results = {
+        students: null,
+        teachers: null,
+        courses: null,
+        enrollments: null,
+        teacherEnrollments: null,
+        startTime: new Date(),
+        endTime: null,
+        success: true,
+        totalErrors: 0
+      };
+
+      // Đồng bộ theo thứ tự: students -> teachers -> courses -> student enrollments -> teacher enrollments
+      try {
+        results.students = await this.syncStudentsToMoodle();
+        results.totalErrors += results.students.errors;
+      } catch (error) {
+        results.success = false;
+        results.students = { success: false, error: error.message };
+      }
+
+      try {
+        results.teachers = await this.syncTeachersToMoodle();
+        results.totalErrors += results.teachers.errors;
+      } catch (error) {
+        results.success = false;
+        results.teachers = { success: false, error: error.message };
+      }
+
+      try {
+        results.courses = await this.syncCoursesToMoodle();
+        results.totalErrors += results.courses.errors;
+      } catch (error) {
+        results.success = false;
+        results.courses = { success: false, error: error.message };
+      }
+
+      try {
+        results.enrollments = await this.syncEnrollmentsStudentToMoodle();
+        results.totalErrors += results.enrollments.errors;
+      } catch (error) {
+        results.success = false;
+        results.enrollments = { success: false, error: error.message };
+      }
+
+      try {
+        results.teacherEnrollments = await this.syncTeacherEnrollmentsToMoodle();
+        results.totalErrors += results.teacherEnrollments.errors;
+      } catch (error) {
+        results.success = false;
+        results.teacherEnrollments = { success: false, error: error.message };
+      }
+
+      results.endTime = new Date();
+
+      // Cập nhật thời gian chạy daily sync
+      this.lastSyncDate.dailySync = new Date();
+      this.saveLastSync();
+
+      const summary = {
+        ...results,
+        message: `Daily sync completed. Total errors: ${results.totalErrors}`,
+        duration: `${results.endTime - results.startTime}ms`
+      };
+
+      syncLogger.info('Daily sync to Moodle completed', summary);
+      return summary;
+
+    } catch (error) {
+      syncLogger.error('Daily sync to Moodle failed:', error);
+      throw error;
+    }
+  }
+
   // Đồng bộ tất cả dữ liệu
-    // Đồng bộ theo thứ tự: 
-    // students -> 
+    // Đồng bộ theo thứ tự:
+    // students ->
     // teachers ->
-    //  courses -> 
-    // student enrollments -> 
-    // teacher enrollments -> 
-    // grades 
+    //  courses ->
+    // student enrollments ->
+    // teacher enrollments ->
+    // grades
   // DONE
   async syncAllToMoodle() {
     try {
@@ -879,6 +980,55 @@ class SyncToMoodleService {
       syncLogger.error('Full sync to Moodle failed:', error);
       throw error;
     }
+  }
+
+  // Schedule daily sync để chạy mỗi ngày một lần
+  startDailySyncScheduler() {
+    syncLogger.info('Starting daily sync scheduler...');
+
+    // Chạy ngay lập tức khi khởi động
+    setTimeout(async () => {
+      try {
+        syncLogger.info('Running initial daily sync on startup...');
+        await this.syncAllToMoodleDaily();
+      } catch (error) {
+        syncLogger.error('Initial daily sync failed:', error);
+      }
+    }, 5000); // Chờ 5 giây sau khi khởi động
+
+    // Schedule chạy mỗi ngày lúc 2:00 AM
+    const scheduleDailySync = () => {
+      const now = new Date();
+      const nextRun = new Date(now);
+      nextRun.setHours(2, 0, 0, 0); // 2:00 AM
+
+      // Nếu đã qua 2:00 AM hôm nay, set cho ngày mai
+      if (now >= nextRun) {
+        nextRun.setDate(nextRun.getDate() + 1);
+      }
+
+      const timeUntilNextRun = nextRun.getTime() - now.getTime();
+
+      syncLogger.info(`Next daily sync scheduled for: ${nextRun.toISOString()} (${Math.round(timeUntilNextRun / 1000 / 60)} minutes from now)`);
+
+      setTimeout(async () => {
+        try {
+          syncLogger.info('Running scheduled daily sync...');
+          await this.syncAllToMoodleDaily();
+
+          // Schedule lại cho ngày mai
+          scheduleDailySync();
+        } catch (error) {
+          syncLogger.error('Scheduled daily sync failed:', error);
+
+          // Vẫn schedule lại cho ngày mai dù có lỗi
+          setTimeout(scheduleDailySync, 1000 * 60 * 60); // Thử lại sau 1 giờ
+        }
+      }, timeUntilNextRun);
+    };
+
+    // Bắt đầu schedule
+    scheduleDailySync();
   }
 
   // Đồng bộ Categori bộ môn, khoa
