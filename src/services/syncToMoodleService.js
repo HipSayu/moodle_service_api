@@ -447,26 +447,26 @@ class SyncToMoodleService {
                 console.log(`Category not found for department ID ${course.IDToBoMon}`);
                 courseData = {
                   course_fullname: `${course.TenLopHoc} - ${course.TenMonHoc} - ${course.TenDot}`,
-                  course_shortname: course.IDLopHocPhan,
+                  course_shortname: course.MaLopHocPhan,
                   course_categoryid: 134,
-                  course_idnumber: course.IDLopHocPhan
+                  course_idnumber: course.MaLopHocPhan
                 };
               }
               else {
                 courseData = {
                   course_fullname: `${course.TenLopHoc} - ${course.TenMonHoc} - ${course.TenDot}`,
-                  course_shortname: course.IDLopHocPhan,
+                  course_shortname: course.MaLopHocPhan,
                   course_categoryid: category.id,
-                  course_idnumber: course.IDLopHocPhan
+                  course_idnumber: course.MaLopHocPhan
                 };
               }
             }
             else {
               courseData = {
                 course_fullname: `${course.TenLopHoc} - ${course.TenMonHoc} - ${course.TenDot}`,
-                course_shortname: course.IDLopHocPhan,
+                course_shortname: course.MaLopHocPhan,
                 course_categoryid: 92,
-                course_idnumber: course.IDLopHocPhan
+                course_idnumber: course.MaLopHocPhan
               };
             }
 
@@ -649,7 +649,7 @@ class SyncToMoodleService {
       for (const course of courses) {
         try {
           // Lấy course trong Moodle
-          const moodleCourse = await moodleService.getCourseByShortname(course.IDLopHocPhan);
+          const moodleCourse = await moodleService.getCourseByShortname(course.MaLopHocPhan);
           if (!moodleCourse) {
             continue;
           }
@@ -721,7 +721,7 @@ class SyncToMoodleService {
       for (const course of courses) {
         try {
           // Lấy course trong Moodle
-          const moodleCourse = await moodleService.getCourseByShortname(course.IDLopHocPhan);
+          const moodleCourse = await moodleService.getCourseByShortname(course.MaLopHocPhan);
           if (!moodleCourse) {
             continue;
           }
@@ -1321,10 +1321,10 @@ class SyncToMoodleService {
         try {
           processed++;
 
-          // Tìm khóa học trong Moodle theo IdLopHocPhan (shortname)
-          const moodleCourse = await moodleService.getCourseByShortname(grade.IdLopHocPhan.toString());
+          // Tìm khóa học trong Moodle theo MaLopHocPhan (shortname)
+          const moodleCourse = await moodleService.getCourseByShortname(grade.MaLopHocPhan);
           if (!moodleCourse) {
-            syncLogger.warn(`⚠ Course not found: ${grade.IdLopHocPhan}`);
+            syncLogger.warn(`⚠ Course not found: ${grade.MaLopHocPhan}`);
             skipped++;
             continue;
           }
@@ -1359,7 +1359,7 @@ class SyncToMoodleService {
           errors++;
           errorDetails.push({
             student: grade.MaSinhVien,
-            courseId: grade.IdLopHocPhan,
+            courseId: grade.MaLopHocPhan,
             courseName: grade.TenMonHoc,
             error: error.message
           });

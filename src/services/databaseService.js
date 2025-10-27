@@ -163,7 +163,9 @@ class DatabaseService {
     try {
       
       let query2 = `
-        SELECT mh.TenMonHoc,lhoc.TenLopHoc, d.TenDot, lhp.Id AS IDLopHocPhan, mh.IDToBoMon, lhoc.NgayCapNhat, mh.SoTietThucHanh, mh.SoTietLyThuyet  FROM dbo.TKB_MonHoc AS mh
+        SELECT mh.TenMonHoc,lhoc.TenLopHoc, d.TenDot, lhp.Id AS IDLopHocPhan, mh.IDToBoMon, lhoc.NgayCapNhat, mh.SoTietThucHanh, mh.SoTietLyThuyet,
+        lhp.MaLopHocPhan
+        FROM dbo.TKB_MonHoc AS mh
         INNER JOIN dbo.TKB_LopHoc as lhoc ON lhoc.Id = mh.IDLopHoc
         INNER JOIN dbo.DM_Dot d WITH (NOLOCK) ON lhoc.IDDot = d.Id
         INNER JOIN  dbo.TKB_LopHocPhan as lhp ON lhp.IDMonHoc= mh.ID
@@ -292,6 +294,7 @@ class DatabaseService {
                     mh.Id AS IDMonHoc,
                     lh.TenLopHoc, 
                     lhp.Id AS IdLopHocPhan,
+                    lhp.MaLopHocPhan,
                     kq.NgayCapNhat
                   FROM dbo.TKB_LopHocPhan AS lhp 
                   INNER JOIN dbo.DT_DangKyHocPhan AS dk ON lhp.Id = dk.IDLopHocPhan 
