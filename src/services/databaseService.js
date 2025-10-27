@@ -249,12 +249,11 @@ class DatabaseService {
     }
   }
 
-  async getTeacherCourseEnrollments(courseId = null) {
+  async getTeacherCourseEnrollments(courseId = null, lastSyncDate = null) {
     try {
       let query = `
        SELECT DISTINCT lhp.MaLopHocPhan, lhoc.TenLopHoc, mh.TenMonHoc,
-       gv.MaGiangVien, gv.HoDem + ' ' + gv.Ten AS HoTenGiangVien, gv.Email,
-       CASE WHEN lhgv.IsTroGiang = 1 THEN 'Trợ giảng' ELSE 'Giảng viên chính' END AS VaiTro
+       gv.MaGiangVien, gv.HoDem + ' ' + gv.Ten AS HoTenGiangVien, gv.Email, lhgv.IsTroGiang
         FROM dbo.TKB_LopHocPhan lhp WITH (NOLOCK)
         INNER JOIN dbo.TKB_DanhSachLopXepLichHoc ds WITH (NOLOCK) ON ds.IDLopHocPhan = lhp.Id
         INNER JOIN dbo.TKB_LopXepLichHoc lxl WITH (NOLOCK) ON lxl.Id = ds.IDLopXepLichHoc
@@ -263,17 +262,21 @@ class DatabaseService {
         INNER JOIN dbo.DM_GiangVien gv WITH (NOLOCK) ON gv.Id = lhgv.IDGiangVien
         INNER JOIN dbo.TKB_MonHoc mh WITH (NOLOCK) ON mh.Id = lhp.IDMonHoc
         INNER JOIN dbo.TKB_LopHoc lhoc WITH (NOLOCK) ON lhoc.Id = mh.IDLopHoc
-        WHERE lhoc.TenLopHoc LIKE '%70%'
+        WHERE lhoc.TenLopHoc LIKE '70%'
       `;
       const parameters = {};
       if (courseId) {
-        query += "WHERE lhp.id= @courseId";
+        query += " AND lhp.id = @courseId";
         parameters.courseId = courseId;
+      }
+      if (lastSyncDate) {
+        query += " AND gv.NgayCapNhat > @lastSyncDate";
+        parameters.lastSyncDate = lastSyncDate;
       }
       const result = await this.executeQuery(query, parameters);
       return result.recordset;
     } catch (error) {
-      logger.error("Error getting course enrollments:", error);
+      logger.error("Error getting teacher course enrollments:", error);
       throw error;
     }
   }

@@ -706,6 +706,7 @@ class SyncToMoodleService {
   }
 
   // Đồng bộ đăng ký giảng viên vào khóa học từ SQL Server sang Moodle
+  // Role: IsTroGiang = 1 -> Trợ giảng (roleId = 4), ngược lại -> Giảng viên chính (roleId = 3)
   // DONE
   async syncTeacherEnrollmentsToMoodle() {
     try {
@@ -731,11 +732,17 @@ class SyncToMoodleService {
             try {
               const moodleUser = await moodleService.getUserByIdNumber(enrollment.MaGiangVien);
               if (moodleUser) {
-                // Đăng ký teacher vào course
-                await moodleService.enrollTeacherToCourse(moodleUser.id, moodleCourse.id, 3, moodleUser, moodleCourse); // 3 = teacher role
+                // Xác định role dựa trên trường IsTroGiang
+                // IsTroGiang = 1: Trợ giảng (roleId = 4)
+                // IsTroGiang = 0 hoặc null: Giảng viên chính (roleId = 3)
+                const roleId = enrollment.IsTroGiang === 1 ? 4 : 3;
+                const roleName = enrollment.IsTroGiang === 1 ? 'Trợ giảng' : 'Giảng viên chính';
+
+                // Đăng ký teacher vào course với role tương ứng
+                await moodleService.enrollTeacherToCourse(moodleUser.id, moodleCourse.id, roleId, moodleUser, moodleCourse);
 
                 syncCount++;
-                syncLogger.debug(`Enrolled teacher ${enrollment.HoTenGiangVien} to course ${course.TenMonHoc}`);
+                syncLogger.debug(`Enrolled ${roleName} ${enrollment.HoTenGiangVien} to course ${course.TenMonHoc} (role: ${roleId})`);
               }
             } catch (enrollError) {
               errorCount++;
@@ -754,7 +761,7 @@ class SyncToMoodleService {
       this.lastSyncDate.teacherEnrollments = new Date();
       this.saveLastSync();
 
-      syncLogger.info(`Teacher enrollment sync completed: ${syncCount}/${totalEnrollments} synced, ${errorCount} errors`);
+      syncLogger.info(`Teacher enrollment sync completed: ${syncCount}/${totalEnrollments} synced, ${errorCount} errors (Role: IsTroGiang=1→Trợ giảng, else→Giảng viên chính)`);
 
       return {
         success: true,
