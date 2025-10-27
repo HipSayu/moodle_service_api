@@ -167,7 +167,7 @@ class DatabaseService {
         INNER JOIN dbo.TKB_LopHoc as lhoc ON lhoc.Id = mh.IDLopHoc
         INNER JOIN dbo.DM_Dot d WITH (NOLOCK) ON lhoc.IDDot = d.Id
         INNER JOIN  dbo.TKB_LopHocPhan as lhp ON lhp.IDMonHoc= mh.ID
-        WHERE lhoc.TenLopHoc LIKE '70CS1%' AND lhp.id = 387230
+        WHERE lhoc.TenLopHoc LIKE '70%'
 `;
       const parameters = {};
       if (lastSyncDate) {
