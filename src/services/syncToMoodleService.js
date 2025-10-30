@@ -439,7 +439,7 @@ class SyncToMoodleService {
         try {
           await retryOperation(async () => {
             console.log("----------------------------------------")
-            const existingCourse = await moodleService.getCourseByShortname(course.IDLopHocPhan);
+            const existingCourse = await moodleService.getCourseByShortname(course.MaLopHocPhan);
             let courseData = {}
             if (course.IDToBoMon) {
               const category = await moodleService.getCategoryByIdNumber(course.IDToBoMon.toString());
