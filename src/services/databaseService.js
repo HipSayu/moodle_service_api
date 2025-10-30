@@ -240,7 +240,7 @@ class DatabaseService {
       `;
       const parameters = {};
       if (courseId) {
-        query += "AND lhp.id = @courseId";
+        query += "AND lhp.MaLopHocPhan = @courseId";
         parameters.courseId = courseId;
       }
       const result = await this.executeQuery(query, parameters);
@@ -268,7 +268,7 @@ class DatabaseService {
       `;
       const parameters = {};
       if (courseId) {
-        query += " AND lhp.id = @courseId";
+        query += " AND lhp.MaLopHocPhan = @courseId";
         parameters.courseId = courseId;
       }
       if (lastSyncDate) {

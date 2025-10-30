@@ -439,7 +439,7 @@ class SyncToMoodleService {
         try {
           await retryOperation(async () => {
             console.log("----------------------------------------")
-            const existingCourse = await moodleService.getCourseByShortname(course.IDLopHocPhan);
+            const existingCourse = await moodleService.getCourseByShortname(course.MaLopHocPhan);
             let courseData = {}
             if (course.IDToBoMon) {
               const category = await moodleService.getCategoryByIdNumber(course.IDToBoMon.toString());
@@ -654,7 +654,7 @@ class SyncToMoodleService {
             continue;
           }
           // Lấy danh sách đăng ký từ SQL Server
-          const enrollments = await databaseService.getStudentCourseEnrollments(course.IDLopHocPhan, lastSync);
+          const enrollments = await databaseService.getStudentCourseEnrollments(course.MaLopHocPhan, lastSync);
           totalEnrollments += enrollments.length;
 
           for (const enrollment of enrollments) {
@@ -726,7 +726,7 @@ class SyncToMoodleService {
             continue;
           }
           // Lấy danh sách đăng ký giảng viên từ HRM_NUCE database
-          const enrollments = await databaseService.getTeacherCourseEnrollments(course.IDLopHocPhan, lastSync);
+          const enrollments = await databaseService.getTeacherCourseEnrollments(course.MaLopHocPhan, lastSync);
           totalEnrollments += enrollments.length;
           for (const enrollment of enrollments) {
             try {
