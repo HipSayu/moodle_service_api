@@ -86,20 +86,21 @@ class DatabaseService {
   async getStudents(lastSyncDate = null) {
     try {
       let query = `SELECT DISTINCT
-                    sv.MaSinhVien,
-                    sv.HoDem,
-                    sv.Ten,
-                    sv.NguyenQuan,
-                    sv.HoDem + ' ' + sv.Ten AS HoTenSinhVien,
-                    sv.Email,
-                    sv.NgayCapNhat AS DateUpdateSV,
-                    lhoc.TenLopHoc
-                    FROMbo.DT_DangKyHocPhan dkhp WITH (NOLOCK)
-                    INNER JOIN dbo.DT_SinhVien sv WITH (NOLOCK) ON sv.Id = dkhp.IDSinhVien
-                    INNER JOIN dbo.TKB_LopHocPhan lhp WITH (NOLOCK) ON lhp.Id = dkhp.IDLopHocPhan
-                    INNER JOIN dbo.TKB_MonHoc mh WITH (NOLOCK) ON mh.Id = lhp.IDMonHoc
-                    INNER JOIN dbo.TKB_LopHoc lhoc WITH (NOLOCK) ON lhoc.Id = mh.IDLopHoc
-                    WHERE sv.email LIKE '%70@st%' 
+        sv.MaSinhVien,
+		sv.HoDem,
+		sv.Ten,
+		lhp.MaLopHocPhan,
+        lhoc.TenLopHoc,
+		sv.HoDem + ' ' + sv.Ten AS HoTenSinhVien,
+		sv.Email,
+		lhoc.TenLopHoc,
+        mh.TenMonHoc
+        FROM dbo.DT_DangKyHocPhan dkhp WITH (NOLOCK)
+        INNER JOIN dbo.DT_SinhVien sv WITH (NOLOCK) ON sv.Id = dkhp.IDSinhVien
+        INNER JOIN dbo.TKB_LopHocPhan lhp WITH (NOLOCK) ON lhp.Id = dkhp.IDLopHocPhan
+        INNER JOIN dbo.TKB_MonHoc mh WITH (NOLOCK) ON mh.Id = lhp.IDMonHoc
+        INNER JOIN dbo.TKB_LopHoc lhoc WITH (NOLOCK) ON lhoc.Id = mh.IDLopHoc
+        WHERE dkhp.IDTrangThaiDangKy IN (1,2,3) AND lhoc.TenLopHoc LIKE '%69IT5%' AND lhp.MaLopHocPhan= '53170201' 
                   `;
       const parameters = {};
       if (lastSyncDate) {
@@ -169,7 +170,7 @@ class DatabaseService {
         INNER JOIN dbo.TKB_LopHoc as lhoc ON lhoc.Id = mh.IDLopHoc
         INNER JOIN dbo.DM_Dot d WITH (NOLOCK) ON lhoc.IDDot = d.Id
         INNER JOIN  dbo.TKB_LopHocPhan as lhp ON lhp.IDMonHoc= mh.ID
-        WHERE lhoc.TenLopHoc LIKE '70%'
+        WHERE lhoc.TenLopHoc LIKE '%69IT5%' AND lhp.MaLopHocPhan= '53170201'
 `;
       const parameters = {};
       if (lastSyncDate) {
@@ -192,9 +193,8 @@ class DatabaseService {
   async getTeachers(lastSyncDate = null) {
     try {
       let query = `
-        SELECT DISTINCT 
-        gv.MaGiangVien AS MaNhanSu, gv.HoDem + ' ' + gv.Ten AS HoTenGiangVien, gv.Email,gv.Ten,gv.NgayCapNhat AS DateUpdateTeacher,gv.HoDem,
-        CASE WHEN lhgv.IsTroGiang = 1 THEN 'Trợ giảng' ELSE 'Giảng viên chính' END AS VaiTro
+       SELECT DISTINCT lhp.MaLopHocPhan, lhoc.TenLopHoc, mh.TenMonHoc,
+       gv.MaGiangVien, gv.HoDem + ' ' + gv.Ten AS HoTenGiangVien, gv.Email, lhgv.IsTroGiang
         FROM dbo.TKB_LopHocPhan lhp WITH (NOLOCK)
         INNER JOIN dbo.TKB_DanhSachLopXepLichHoc ds WITH (NOLOCK) ON ds.IDLopHocPhan = lhp.Id
         INNER JOIN dbo.TKB_LopXepLichHoc lxl WITH (NOLOCK) ON lxl.Id = ds.IDLopXepLichHoc
@@ -203,6 +203,7 @@ class DatabaseService {
         INNER JOIN dbo.DM_GiangVien gv WITH (NOLOCK) ON gv.Id = lhgv.IDGiangVien
         INNER JOIN dbo.TKB_MonHoc mh WITH (NOLOCK) ON mh.Id = lhp.IDMonHoc
         INNER JOIN dbo.TKB_LopHoc lhoc WITH (NOLOCK) ON lhoc.Id = mh.IDLopHoc
+        WHERE lhoc.TenLopHoc LIKE '%69IT5%' AND lhp.MaLopHocPhan= '53170201';
         
 `;
       const parameters = {};
@@ -236,7 +237,8 @@ class DatabaseService {
         INNER JOIN dbo.TKB_LopHocPhan lhp WITH (NOLOCK) ON lhp.Id = dkhp.IDLopHocPhan
         INNER JOIN dbo.TKB_MonHoc mh WITH (NOLOCK) ON mh.Id = lhp.IDMonHoc
         INNER JOIN dbo.TKB_LopHoc lhoc WITH (NOLOCK) ON lhoc.Id = mh.IDLopHoc
-        WHERE dkhp.IDTrangThaiDangKy IN (1,2,3) AND lhoc.TenLopHoc LIKE '%70%'
+        WHERE dkhp.IDTrangThaiDangKy IN (1,2,3) AND lhoc.TenLopHoc LIKE '%69IT5%' AND lhp.MaLopHocPhan= '53170201'
+
       `;
       const parameters = {};
       if (courseId) {
