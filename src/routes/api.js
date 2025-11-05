@@ -299,6 +299,38 @@ router.post('/test/create-quiz/:courseId', asyncHandler(async (req, res) => {
   }
 }));
 
+// Xóa tất cả bài quiz trong tất cả khóa học Moodle
+router.post('/sync/delete-all-quizzes', asyncHandler(async (req, res) => {
+  const result = await syncToMoodleService.deleteAllQuizzesInAllCourses();
+  res.json({
+    success: result.success,
+    message: result.message,
+    data: result
+  });
+}));
+
+// Test xóa tất cả quiz trong một course cụ thể
+router.post('/sync/delete-quizzes/:courseId', asyncHandler(async (req, res) => {
+  const { courseId } = req.params;
+  const result = await moodleService.deleteAllQuizzesInCourse(parseInt(courseId));
+  res.json({
+    success: result.success,
+    message: `Deleted ${result.deletedCount} quizzes from course ${courseId}`,
+    data: result
+  });
+}));
+
+// Lấy danh sách courses để test (giới hạn 10 courses)
+router.get('/test/courses', asyncHandler(async (req, res) => {
+  const courses = await moodleService.getCoursesLimit(10);
+  res.json({
+    success: true,
+    message: 'Courses retrieved for testing',
+    data: courses,
+    count: courses.length
+  });
+}));
+
 
 
 export default router;

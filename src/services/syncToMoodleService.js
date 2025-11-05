@@ -1392,5 +1392,112 @@ class SyncToMoodleService {
       throw error;
     }
   }
+
+  /**
+   * Xóa tất cả bài quiz trong tất cả khóa học Moodle
+   * @returns {object} Kết quả xóa quiz
+   */
+  async deleteAllQuizzesInAllCourses() {
+    try {
+      syncLogger.info('🔄 Starting to delete all quizzes in all Moodle courses...');
+
+      // Lấy danh sách tất cả khóa học từ Moodle
+      const courses = await moodleService.getCourses();
+
+      if (!courses || courses.length === 0) {
+        syncLogger.info('No courses found in Moodle');
+        return {
+          success: true,
+          message: 'No courses found in Moodle',
+          totalCourses: 0,
+          totalQuizzesDeleted: 0,
+          coursesProcessed: 0,
+          errors: []
+        };
+      }
+
+      let totalQuizzesDeleted = 0;
+      let coursesProcessed = 0;
+      let coursesWithErrors = 0;
+      const errors = [];
+      const courseResults = [];
+
+      for (const course of courses) {
+        // Bỏ qua "Site home" course (ID = 1)
+        if (course.id === 1) {
+          syncLogger.info('Skipping Site home course');
+          continue;
+        }
+
+        try {
+          await retryOperation(async () => {
+            syncLogger.info(`Processing course: ${course.fullname} (ID: ${course.id})`);
+
+            const result = await moodleService.deleteAllQuizzesInCourse(course.id);
+
+            coursesProcessed++;
+            totalQuizzesDeleted += result.deletedCount || 0;
+
+            courseResults.push({
+              courseId: course.id,
+              courseName: course.fullname,
+              quizzesDeleted: result.deletedCount || 0,
+              totalQuizzes: result.totalQuizzes || 0,
+              errors: result.errorsCount || 0
+            });
+
+            if (result.errorsCount > 0) {
+              coursesWithErrors++;
+              errors.push(...result.errors.map(err => ({
+                courseId: course.id,
+                courseName: course.fullname,
+                ...err
+              })));
+            }
+
+            syncLogger.info(`✓ Processed course ${course.fullname}: ${result.deletedCount || 0} quizzes deleted`);
+
+          }, 3, 2000); // Retry 3 lần, delay 2 giây
+
+        } catch (error) {
+          coursesWithErrors++;
+          errors.push({
+            courseId: course.id,
+            courseName: course.fullname,
+            error: error.message,
+            stack: error.stack
+          });
+          syncLogger.error(`✗ Failed to process course ${course.fullname} (ID: ${course.id}):`, error);
+        }
+      }
+
+      const summary = {
+        success: errors.length === 0,
+        message: `Đã xóa ${totalQuizzesDeleted} quiz từ ${coursesProcessed} khóa học`,
+        totalCourses: courses.length,
+        coursesProcessed,
+        coursesWithErrors,
+        totalQuizzesDeleted,
+        errorsCount: errors.length,
+        errorDetails: errors.slice(0, 20), // Giới hạn số lỗi trả về
+        courseResults: courseResults.slice(0, 50), // Giới hạn kết quả khóa học trả về
+        timestamp: new Date().toISOString()
+      };
+
+      syncLogger.info('✅ Delete all quizzes completed', {
+        totalCourses: courses.length,
+        coursesProcessed,
+        coursesWithErrors,
+        totalQuizzesDeleted,
+        errorsCount: errors.length
+      });
+
+      return summary;
+
+    } catch (error) {
+      syncLogger.error('❌ Delete all quizzes failed with critical error:', error);
+      throw error;
+    }
+  }
 }
 export default new SyncToMoodleService();

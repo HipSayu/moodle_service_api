@@ -52,11 +52,11 @@ class MoodleService {
       };
 
       const result = await this.callWebService('core_user_create_users', {
-        'users[0][username]': user.username|| '',
-        'users[0][firstname]': user.firstname||'',
-        'users[0][lastname]': user.lastname|| '',
-        'users[0][email]': user.email|| '',
-        'users[0][password]': user.password|| '',
+        'users[0][username]': user.username || '',
+        'users[0][firstname]': user.firstname || '',
+        'users[0][lastname]': user.lastname || '',
+        'users[0][email]': user.email || '',
+        'users[0][password]': user.password || '',
         'users[0][auth]': 'oauth2',
         'users[0][idnumber]': user.idnumber || '',
         'users[0][city]': user.city || '',
@@ -84,7 +84,7 @@ class MoodleService {
         'users[0][firstname]': userData.first_name,
         'users[0][lastname]': userData.last_name,
         // 'users[0][email]': userData.email,
-        'users[0][auth]':'oauth2',
+        'users[0][auth]': 'oauth2',
         // 'users[0][idnumber]': userData.idnumber,
         'users[0][city]': userData.city || "",
       };
@@ -815,9 +815,9 @@ class MoodleService {
       logger.debug('mod_assign_save_grade response:', result);
 
       if (result === null || result === undefined ||
-          result.status === true ||
-          (Array.isArray(result) && result.length === 0) ||
-          (!Array.isArray(result) && Object.keys(result).length === 0)) {
+        result.status === true ||
+        (Array.isArray(result) && result.length === 0) ||
+        (!Array.isArray(result) && Object.keys(result).length === 0)) {
         logger.info(`✓ Graded assignment ${assignmentid} for user ${userid}: ${grade}`);
         return {
           success: true,
@@ -1069,45 +1069,106 @@ class MoodleService {
   }
 
   /**
-   * Tạo câu hỏi và thêm vào quiz trong 1 lần gọi
+   * Xóa quiz trong course
+   * @param {number} quizId - ID của quiz (cmid)
+   * @returns {boolean} Thành công hay không
    */
-  async createAndAddQuestionToQuiz(quizId, questionData) {
+  async deleteQuiz(quizId) {
     try {
-      logger.info(`Creating and adding question to quiz ${quizId}: ${questionData.name}`);
-
-      const result = await this.callWebService('local_questionapi_create_and_add_question', {
-        quizid: quizId,
-        questiontype: questionData.questiontype || 'multichoice',
-        name: questionData.name,
-        questiontext: questionData.questiontext,
-        defaultmark: questionData.defaultmark || 1.0,
-        answers: JSON.stringify(questionData.answers || []),
-        page: questionData.page || 1
-      }, '9f7a6a274527529027a124c78c30a86c');
-
-      if (result && result.success) {
-        logger.info(`Question created and added to quiz successfully: ${result.name} (ID: ${result.questionid})`);
-        return {
-          success: result.success,
-          questionid: result.questionid,
-          quizid: result.quizid,
-          name: result.name,
-          questiontype: result.questiontype,
-          message: result.message
-        };
-      } else {
-        throw new Error('Failed to create and add question to quiz');
-      }
-    } catch (error) {
-      logger.error('Error creating and adding question to quiz:', {
-        quizId,
-        questionName: questionData.name,
-        error: error.message,
-        response: error.response?.data
+      // Sử dụng core_course_delete_modules để xóa module quiz
+      await this.callWebService('core_course_delete_modules', {
+        'cmids[0]': quizId
       });
+
+      logger.info(`✓ Quiz deleted successfully: ID ${quizId}`);
+      return true;
+    } catch (error) {
+      logger.error(`✗ Error deleting quiz ${quizId}:`, error);
+      throw error;
+    }
+  }
+
+  /**
+   * Lấy danh sách tất cả quiz trong course
+   * @param {number} courseId - Course ID
+   * @returns {array} Danh sách quiz modules
+   */
+  async getCourseQuizzes(courseId) {
+    try {
+      const contents = await this.getCourseContents(courseId);
+
+      const quizzes = [];
+      contents.forEach(section => {
+        if (section.modules && section.modules.length > 0) {
+          section.modules.forEach(module => {
+            if (module.modname === 'quiz') {
+              quizzes.push({
+                id: module.id, // cmid
+                instance: module.instance, // quiz id
+                name: module.name,
+                section: section.section,
+                sectionName: section.name
+              });
+            }
+          });
+        }
+      });
+
+      logger.info(`Found ${quizzes.length} quizzes in course ${courseId}`);
+      return quizzes;
+    } catch (error) {
+      logger.error(`Error getting quizzes for course ${courseId}:`, error);
+      throw error;
+    }
+  }
+
+  /**
+   * Xóa tất cả quiz trong course
+   * @param {number} courseId - Course ID
+   * @returns {object} Kết quả xóa
+   */
+  async deleteAllQuizzesInCourse(courseId) {
+    try {
+      const quizzes = await this.getCourseQuizzes(courseId);
+
+      if (quizzes.length === 0) {
+        logger.info(`No quizzes found in course ${courseId}`);
+        return {
+          success: true,
+          message: 'No quizzes to delete',
+          deletedCount: 0
+        };
+      }
+
+      let deletedCount = 0;
+      const errors = [];
+
+      for (const quiz of quizzes) {
+        try {
+          await this.deleteQuiz(quiz.id);
+          deletedCount++;
+          logger.info(`✓ Deleted quiz "${quiz.name}" (ID: ${quiz.id}) from course ${courseId}`);
+        } catch (error) {
+          errors.push({
+            quizId: quiz.id,
+            quizName: quiz.name,
+            error: error.message
+          });
+          logger.error(`✗ Failed to delete quiz "${quiz.name}" (ID: ${quiz.id}):`, error);
+        }
+      }
+
+      return {
+        success: errors.length === 0,
+        totalQuizzes: quizzes.length,
+        deletedCount,
+        errorsCount: errors.length,
+        errors: errors.slice(0, 10) // Giới hạn số lỗi trả về
+      };
+    } catch (error) {
+      logger.error(`Error deleting all quizzes in course ${courseId}:`, error);
       throw error;
     }
   }
 }
-
 export default new MoodleService();
