@@ -262,11 +262,6 @@ class SyncToMoodleService {
         }
       }
 
-      // Nếu là lớp lý thuyết, kiểm tra và tạo quiz và assignment
-      if (courseInfo.SoTietThucHanh < courseInfo.SoTietLyThuyet && createdSections.length >= 6) {
-        await this.ensureCourseQuizzes(courseId, createdSections);
-      }
-
       // Tạo assignment cuối kỳ cho tất cả các khóa học (cả lý thuyết và thực hành)
       await this.ensureCourseAssignments(courseId, courseInfo, createdSections);
 
@@ -477,12 +472,12 @@ class SyncToMoodleService {
               // Cập nhật course hiện có
               await moodleService.updateCourse(existingCourse.id, courseData);
 
-              // Kiểm tra và tạo sections nếu thiếu
-              try {
-                await this.ensureCourseSections(existingCourse.id, course);
-              } catch (sectionError) {
-                syncLogger.error(`Failed to ensure sections for existing course ${existingCourse.id}:`, sectionError);
-              }
+      // Kiểm tra và tạo sections nếu thiếu
+      try {
+        await this.ensureCourseSections(existingCourse.id, course);
+      } catch (sectionError) {
+        syncLogger.error(`Failed to ensure sections for existing course ${existingCourse.id}:`, sectionError);
+      }
             } else {
               // Tạo course mới
               console.log('-----------------------')
@@ -520,32 +515,10 @@ class SyncToMoodleService {
                   createdSections.push(section);
                 }
 
-                // Tạo quiz cho lớp lý thuyết và assignment cho cả hai loại lớp
+                // Tạo assignment cuối kỳ cho tất cả các khóa học (cả lý thuyết và thực hành)
                 if (course.SoTietThucHanh < course.SoTietLyThuyet) {
-                  // Lớp lý thuyết: tạo quiz giữa kỳ và assignment cuối kỳ
-                  if (createdSections.length < 6) {
-                    syncLogger.warn(`Not enough sections created for theory course ${newCourse.id}. Expected 6, got ${createdSections.length}`);
-                  } else {
-                    // Tạo quiz giữa kỳ
-                    try {
-                      const midtermQuiz = await moodleService.createQuizWithPlugin(newCourse.id, {
-                        name: 'Bài kiểm tra giữa kỳ',
-                        intro: '<p>Bài kiểm tra giữa kỳ</p>',
-                        section: createdSections[4].section,
-                        timeopen: Math.floor(Date.now() / 1000),
-                        timeclose: Math.floor(Date.now() / 1000) + 7 * 24 * 3600,
-                        timelimit: 1800,
-                        attempts: 2,
-                        grademethod: 1,
-                        grade: 10,
-                        visible: 1
-                      });
-                      syncLogger.info(`Created midterm quiz for course ${newCourse.id}: ${midtermQuiz.quizId || 'unknown'}`);
-                    } catch (quizError) {
-                      syncLogger.error(`Failed to create midterm quiz for course ${newCourse.id}:`, quizError);
-                    }
-
-                    // Tạo assignment cuối kỳ
+                  // Lớp lý thuyết: tạo assignment cuối kỳ trong section "Kiểm tra cuối kì"
+                  if (createdSections.length >= 6) {
                     try {
                       const finalAssignment = await moodleService.createAssignmentWithPlugin(newCourse.id, {
                         name: 'Bài tập cuối kỳ',
@@ -566,11 +539,8 @@ class SyncToMoodleService {
                     }
                   }
                 } else {
-                  // Lớp thực hành: tạo assignment cuối kỳ
-                  if (createdSections.length < 4) {
-                    syncLogger.warn(`Not enough sections created for practical course ${newCourse.id}. Expected 4, got ${createdSections.length}`);
-                  } else {
-                    // Tạo assignment cuối kỳ cho lớp thực hành
+                  // Lớp thực hành: tạo assignment cuối kỳ trong section "Bảo vệ"
+                  if (createdSections.length >= 4) {
                     try {
                       const finalAssignment = await moodleService.createAssignmentWithPlugin(newCourse.id, {
                         name: 'Bài tập cuối kỳ',
