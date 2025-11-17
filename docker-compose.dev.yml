@@ -1,0 +1,24 @@
+# Override file for development environment
+# This file is automatically merged with docker-compose.yml
+# Copy this file to docker-compose.override.yml and modify as needed
+
+version: '3.8'
+
+services:
+  app:
+    # Mount source code for development
+    volumes:
+      - .:/app
+      - /app/node_modules
+    # Override environment for development
+    environment:
+      - NODE_ENV=development
+      - LOG_LEVEL=debug
+    # Expose port for direct access during development
+    ports:
+      - "3000:3000"
+
+  nginx:
+    # Mount nginx config for easy editing
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro

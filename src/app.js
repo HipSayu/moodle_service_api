@@ -118,7 +118,7 @@ class App {
   // Khởi tạo database connection
   async initializeDatabase() {
     try {
-      await databaseService.connect();
+      // await databaseService.connect();
       logger.info('Database connection established');
     } catch (error) {
       logger.error('Failed to connect to database:', error);
@@ -159,7 +159,7 @@ class App {
       // Initialize database
       await this.initializeDatabase();
       // Initialize scheduler
-      await this.initializeScheduler(); // Tắt tự động đồng bộ
+    //  await this.initializeScheduler(); // Tắt tự động đồng bộ
 
       logger.info('Application initialized successfully');
     } catch (error) {

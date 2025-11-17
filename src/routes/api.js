@@ -37,6 +37,36 @@ router.get('/health', asyncHandler(async (req, res) => {
   res.status(overallStatus ? 200 : 503).json(health);
 }));
 
+// Lấy IP của máy truy cập
+router.get('/client-ip', asyncHandler(async (req, res) => {
+  // Lấy IP từ các header khác nhau để đảm bảo lấy được IP thực
+  const ip = req.headers['x-forwarded-for']?.split(',')[0]?.trim() ||
+             req.headers['x-real-ip'] ||
+             req.headers['x-client-ip'] ||
+             req.connection.remoteAddress ||
+             req.socket.remoteAddress ||
+             req.ip ||
+             'unknown';
+
+  // Chuẩn hóa IPv4 mapped to IPv6 (::ffff:192.168.1.1 -> 192.168.1.1)
+  const normalizedIp = ip.replace(/^::ffff:/, '');
+
+  res.json({
+    success: true,
+    message: 'Client IP retrieved successfully',
+    data: {
+      ip: normalizedIp,
+      userAgent: req.get('User-Agent'),
+      timestamp: new Date().toISOString(),
+      headers: {
+        'x-forwarded-for': req.headers['x-forwarded-for'],
+        'x-real-ip': req.headers['x-real-ip'],
+        'x-client-ip': req.headers['x-client-ip']
+      }
+    }
+  });
+}));
+
 // Đồng bộ sinh viên từ SQL Server sang Moodle
 // Done
 router.post('/sync/students', asyncHandler(async (req, res) => {

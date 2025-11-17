@@ -2,17 +2,105 @@
 
 Service đồng bộ dữ liệu giữa SQL Server và Moodle thông qua Web Service API.
 
-## Tính năng
+## 🚀 Chạy với Docker (Khuyến nghị)
 
-- Đồng bộ sinh viên từ SQL Server sang Moodle
-- Đồng bộ giảng viên từ SQL Server sang Moodle  
-- Đồng bộ khóa học từ SQL Server sang Moodle
-- Đồng bộ điểm từ Moodle về SQL Server
-- Lên lịch tự động đồng bộ
-- Logging chi tiết
-- API để kích hoạt đồng bộ thủ công
+### Yêu cầu
+- Docker và Docker Compose đã được cài đặt
 
-## Cài đặt
+### Cài đặt và chạy
+
+1. **Clone repository và cấu hình:**
+   ```bash
+   git clone <repository-url>
+   cd moodle_service_api
+   cp .env.example .env
+   ```
+
+2. **Chỉnh sửa file `.env`:**
+   ```bash
+   # Cập nhật thông tin SQL Server, Moodle theo môi trường của bạn
+   nano .env
+   ```
+
+4. **Chạy ứng dụng:**
+   ```bash
+   # Production mode
+   docker-compose up -d
+
+   # Development mode (với hot reload)
+   docker-compose -f docker-compose.yml -f docker-compose.dev.yml up -d
+   ```
+
+### Development với Hot Reload
+
+Để phát triển với hot reload, sử dụng file override:
+
+```bash
+# Chạy ở development mode
+docker-compose -f docker-compose.yml -f docker-compose.dev.yml up -d
+
+# Xem logs development
+docker-compose -f docker-compose.yml -f docker-compose.dev.yml logs -f app
+```
+
+File `docker-compose.dev.yml` sẽ:
+- Mount source code vào container
+- Set NODE_ENV=development
+- Cho phép truy cập trực tiếp vào port 3000
+
+4. **Kiểm tra trạng thái:**
+   ```bash
+   # Kiểm tra containers đang chạy
+   docker-compose ps
+
+   # Xem logs
+   docker-compose logs -f app
+   docker-compose logs -f nginx
+   ```
+
+### Cấu trúc Docker
+
+- **App Container**: Chạy Node.js application trên port 3000
+- **Nginx Container**: Reverse proxy trên port 80/443
+- **Networks**: Isolated network cho internal communication
+- **Volumes**: Persistent storage cho logs và sync data
+
+### Quản lý Docker
+
+Sử dụng script `docker.sh` để quản lý containers dễ dàng:
+
+```bash
+# Chạy services
+./docker.sh up
+
+# Xem logs
+./docker.sh logs app
+./docker.sh logs nginx
+
+# Vào container để debug
+./docker.sh shell app
+
+# Test API
+./docker.sh test
+
+# Dừng và dọn dẹp
+./docker.sh down
+./docker.sh clean
+```
+
+Các lệnh có sẵn:
+- `build` - Build lại images
+- `up` - Khởi động services
+- `down` - Dừng services
+- `restart` - Restart services
+- `logs [service]` - Xem logs
+- `status` - Trạng thái services
+- `shell [service]` - Vào shell container
+- `clean` - Dọn dẹp containers và volumes
+- `update` - Cập nhật code và rebuild
+- `test` - Test API endpoints
+
+## 📦 Cài đặt thủ công (Development)
 
 1. Clone repository
 2. Cài đặt dependencies:
@@ -22,7 +110,7 @@ Service đồng bộ dữ liệu giữa SQL Server và Moodle thông qua Web Ser
 
 3. Tạo file `.env` từ `.env.example` và cấu hình:
    ```bash
-   copy .env.example .env
+   cp .env.example .env
    ```
 
 4. Cấu hình thông tin kết nối SQL Server và Moodle trong file `.env`

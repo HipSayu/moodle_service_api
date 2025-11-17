@@ -1,0 +1,62 @@
+version: '3.8'
+
+services:
+  app:
+    image: hiepsayu/moodle-sync-api:latest
+    container_name: moodle-sync-api
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    environment:
+      - NODE_ENV=production
+      - PORT=3000
+      # Database configuration - update these values
+      - SQL_SERVER=${SQL_SERVER:-localhost}
+      - SQL_DATABASE=${SQL_DATABASE:-university_db}
+      - SQL_USERNAME=${SQL_USERNAME:-sa}
+      - SQL_PASSWORD=${SQL_PASSWORD:-your_password}
+      - SQL_PORT=${SQL_PORT:-1433}
+      - SQL_ENCRYPT=${SQL_ENCRYPT:-true}
+      - SQL_TRUST_SERVER_CERTIFICATE=${SQL_TRUST_SERVER_CERTIFICATE:-false}
+      # Moodle configuration - update these values
+      - MOODLE_URL=${MOODLE_URL:-https://your-moodle-site.com}
+      - MOODLE_TOKEN=${MOODLE_TOKEN:-your_token}
+      - MOODLE_SERVICE=${MOODLE_SERVICE:-moodle_mobile_app}
+      # Sync configuration
+      - SYNC_INTERVAL_MINUTES=${SYNC_INTERVAL_MINUTES:-60}
+      - ENABLE_AUTO_SYNC=${ENABLE_AUTO_SYNC:-false}
+      # Logging configuration
+      - LOG_LEVEL=${LOG_LEVEL:-info}
+      - LOG_MAX_FILES=${LOG_MAX_FILES:-30}
+      - LOG_MAX_SIZE=${LOG_MAX_SIZE:-10m}
+    volumes:
+      - ./logs:/app/logs
+      - ./lastSync.json:/app/lastSync.json
+    networks:
+      - moodle-network
+    depends_on:
+      - nginx
+
+  nginx:
+    image: nginx:alpine
+    container_name: moodle-sync-nginx
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./nginx/ssl:/etc/nginx/ssl:ro
+      - ./logs/nginx:/var/log/nginx
+    networks:
+      - moodle-network
+    depends_on:
+      - app
+
+networks:
+  moodle-network:
+    driver: bridge
+
+volumes:
+  logs:
+    driver: local
