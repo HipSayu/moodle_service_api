@@ -29,34 +29,15 @@ services:
       - LOG_LEVEL=${LOG_LEVEL:-info}
       - LOG_MAX_FILES=${LOG_MAX_FILES:-30}
       - LOG_MAX_SIZE=${LOG_MAX_SIZE:-10m}
-    volumes:
-      - ./logs:/app/logs
-      - ./lastSync.json:/app/lastSync.json
-    networks:
-      - moodle-network
-    depends_on:
-      - nginx
-
   nginx:
     image: nginx:alpine
     container_name: moodle-sync-nginx
     restart: unless-stopped
     ports:
-      - "80:80"
-      - "443:443"
+      - "8006:80"
     volumes:
       - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
       - ./nginx/ssl:/etc/nginx/ssl:ro
       - ./logs/nginx:/var/log/nginx
-    networks:
-      - moodle-network
     depends_on:
       - app
-
-networks:
-  moodle-network:
-    driver: bridge
-
-volumes:
-  logs:
-    driver: local

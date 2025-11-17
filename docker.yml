@@ -1,0 +1,187 @@
+version: '3.8'
+
+services:
+  # MariaDB Database
+  db:
+    image: 2404e1d29d08
+    container_name: moodle-mariadb
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: StrongRootPass123!
+      MYSQL_DATABASE: moodle
+      MYSQL_USER: moodleuser
+      MYSQL_PASSWORD: MoodlePass123!
+      MYSQL_CHARACTER_SET_SERVER: utf8mb4
+      MYSQL_COLLATION_SERVER: utf8mb4_unicode_ci
+    ports:
+      - "3306:3306"
+    volumes:
+      - db_data:/var/lib/mysql
+      - ./db-config:/etc/mysql/conf.d
+    networks:
+      - moodle-network
+    command: --character-set-server=utf8mb4 --collation-server=utf8mb4_unicode_ci
+
+  # Moodle Application - FIXED FOR DOMAIN
+  moodle:
+    image: ed24e19a4565
+    container_name: moodle-app
+    restart: "no"
+    environment:
+      MOODLE_DATABASE_HOST: db
+      MOODLE_DATABASE_PORT_NUMBER: 3306
+      MOODLE_DATABASE_USER: moodleuser
+      MOODLE_DATABASE_NAME: moodle
+      MOODLE_DATABASE_PASSWORD: MoodlePass123!
+      MOODLE_USERNAME: admin
+      MOODLE_PASSWORD: AdminPass123!
+      MOODLE_EMAIL: admin@huce.edu.vn
+      MOODLE_SITE_NAME: "HUCE Moodle LMS"
+      MOODLE_HOST: lms.huce.edu.vn
+      MOODLE_PROTOCOL: https
+      BITNAMI_DEBUG: "true"
+      ALLOW_EMPTY_PASSWORD: "yes"
+    ports:
+      - "7777:8080"
+      - "7443:8443"
+    volumes:
+      - moodle_data:/bitnami/moodle
+      - moodledata_data:/bitnami/moodledata
+    depends_on:
+      - db
+    networks:
+      - moodle-network
+
+  # phpMyAdmin - Database Management
+  phpmyadmin:
+    image: phpmyadmin/phpmyadmin:latest
+    container_name: moodle-phpmyadmin
+    restart: unless-stopped
+    environment:
+      PMA_HOST: db
+      PMA_PORT: 3306
+      PMA_USER: root
+      PMA_PASSWORD: StrongRootPass123!
+      MYSQL_ROOT_PASSWORD: StrongRootPass123!
+      PMA_ARBITRARY: 1
+    ports:
+      - "8080:80"
+    depends_on:
+      - db
+    networks:
+      - moodle-network
+    
+  appDemoTest:
+    image: hiepsayu/moodle-sync-api:latest
+    container_name: appDemoTest
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    environment:
+      - NODE_ENV=production
+      - PORT=3000
+      # Database configuration - update these values
+      - SQL_SERVER=${SQL_SERVER:-localhost}
+      - SQL_DATABASE=${SQL_DATABASE:-university_db}
+      - SQL_USERNAME=${SQL_USERNAME:-sa}
+      - SQL_PASSWORD=${SQL_PASSWORD:-your_password}
+      - SQL_PORT=${SQL_PORT:-1433}
+      - SQL_ENCRYPT=${SQL_ENCRYPT:-true}
+      - SQL_TRUST_SERVER_CERTIFICATE=${SQL_TRUST_SERVER_CERTIFICATE:-false}
+      # Moodle configuration - update these values
+      - MOODLE_URL=${MOODLE_URL:-https://your-moodle-site.com}
+      - MOODLE_TOKEN=${MOODLE_TOKEN:-your_token}
+      - MOODLE_SERVICE=${MOODLE_SERVICE:-moodle_mobile_app}
+      # Sync configuration
+      - SYNC_INTERVAL_MINUTES=${SYNC_INTERVAL_MINUTES:-60}
+      - ENABLE_AUTO_SYNC=${ENABLE_AUTO_SYNC:-false}
+      # Logging configuration
+      - LOG_LEVEL=${LOG_LEVEL:-info}
+      - LOG_MAX_FILES=${LOG_MAX_FILES:-30}
+      - LOG_MAX_SIZE=${LOG_MAX_SIZE:-10m}
+    networks:
+      - moodle-network
+
+
+  # Redis Cache - Performance boost
+  redis:
+    image: redis:7-alpine
+    container_name: moodle-redis
+    restart: unless-stopped
+    command: redis-server --appendonly yes --requirepass RedisPass123!
+    volumes:
+      - redis_data:/data
+    networks:
+      - moodle-network
+
+  # Nginx Reverse Proxy - DOMAIN PROXY
+  nginx:
+    image: nginx:alpine
+    container_name: moodle-nginx
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+      - "8007:8007"
+    volumes:
+      - ./nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./ssl:/etc/ssl/certs:ro
+    depends_on:
+      - moodle
+    networks:
+      - moodle-network
+
+  # Backup Service - Auto backup every day at 2 AM
+  backup:
+    image: alpine:latest
+    container_name: moodle-backup
+    restart: unless-stopped
+    environment:
+      MYSQL_HOST: db
+      MYSQL_USER: root
+      MYSQL_PASSWORD: StrongRootPass123!
+      MYSQL_DATABASE: moodle
+      BACKUP_RETENTION_DAYS: 7
+    volumes:
+      - ./backups:/backups
+      - moodle_data:/moodle-files:ro
+      - moodledata_data:/moodle-data:ro
+      - ./backups/scripts:/scripts
+    depends_on:
+      - db
+      - moodle
+    networks:
+      - moodle-network
+    command: >
+      sh -c "
+      echo 'Installing packages...' &&
+      apk add --no-cache mysql-client dcron curl &&
+      echo 'Setting up cron job...' &&
+      echo '0 2 * * * sh /scripts/backup.sh >> /backups/cron.log 2>&1' > /etc/crontabs/root &&
+      echo 'Cron job installed:' &&
+      cat /etc/crontabs/root &&
+      echo 'Backup service started. Cron will run at 2 AM daily.' &&
+      echo 'To run backup manually: docker exec moodle-backup sh /scripts/backup.sh' &&
+      echo 'Starting cron daemon...' &&
+      crond -b &&
+      echo 'Cron daemon started. Container will keep running...' &&
+      tail -f /dev/null
+      "
+networks:
+  moodle-network:
+    name: moodle_moodle-network
+    driver: bridge
+
+volumes:
+  db_data:
+    driver: local
+  moodle_data:
+    driver: local
+  moodledata_data:
+    driver: local
+  redis_data:
+    driver: local
+
+
+
+
