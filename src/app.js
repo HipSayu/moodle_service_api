@@ -159,7 +159,7 @@ class App {
       // Initialize database
       await this.initializeDatabase();
       // Initialize scheduler
-      await this.initializeScheduler(); // Tắt tự động đồng bộ
+     // await this.initializeScheduler(); // Tắt tự động đồng bộ
 
       logger.info('Application initialized successfully');
     } catch (error) {

@@ -66,12 +66,12 @@ class SyncToMoodleService {
       for (const student of students) {
         try {
           await retryOperation(async () => {
-            const existingUser = await moodleService.getUserByIdNumber(student.MaSinhVien);
+            const existingUser = await moodleService.getUserByIdNumber(student.MaSinhVien);                                                                                                                                                                                                                                                                                                                                                                                                                                                                               
 
             const userData = {
               username: student.MaSinhVien,
-              first_name: student.HoDem,
-              last_name: student.Ten,
+              first_name: student.Ten,
+              last_name: student.HoDem,
               email: student.Email,
               city: student.NguyenQuan || "HN",
               idnumber: student.MaSinhVien,

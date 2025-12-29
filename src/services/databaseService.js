@@ -94,7 +94,7 @@ class DatabaseService {
                     sv.Email,
                     sv.NgayCapNhat AS DateUpdateSV,
                     lhoc.TenLopHoc
-                    FROMbo.DT_DangKyHocPhan dkhp WITH (NOLOCK)
+                    FROM dbo.DT_DangKyHocPhan dkhp WITH (NOLOCK)
                     INNER JOIN dbo.DT_SinhVien sv WITH (NOLOCK) ON sv.Id = dkhp.IDSinhVien
                     INNER JOIN dbo.TKB_LopHocPhan lhp WITH (NOLOCK) ON lhp.Id = dkhp.IDLopHocPhan
                     INNER JOIN dbo.TKB_MonHoc mh WITH (NOLOCK) ON mh.Id = lhp.IDMonHoc
