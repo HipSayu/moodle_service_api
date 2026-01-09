@@ -1,4 +1,5 @@
 import axios from 'axios';
+import https from 'https';
 import config from '../config/index.js';
 import { logger } from '../utils/logger.js';
 
@@ -7,6 +8,10 @@ class MoodleService {
     this.baseUrl = config.moodle.url;
     this.token = config.moodle.token;
     this.service = config.moodle.service;
+    // Create HTTPS agent to ignore certificate errors
+    this.httpsAgent = new https.Agent({
+      rejectUnauthorized: false
+    });
   }
 
   // Gọi Moodle Web Service API
@@ -22,7 +27,8 @@ class MoodleService {
 
       const response = await axios.post(url, null, {
         params: data,
-        timeout: 100000
+        timeout: 100000,
+        httpsAgent: this.httpsAgent
       });
 
       if (response.data && response.data.exception) {
@@ -48,7 +54,7 @@ class MoodleService {
         city: userData.city || "HN",
         idnumber: userData.idnumber || `no ${Date.now()}`,
         password: userData.password || 'DefaultPassword123!',
-        auth: 'oauth2'
+        auth: 'manual'
       };
 
       const result = await this.callWebService('core_user_create_users', {
@@ -57,7 +63,7 @@ class MoodleService {
         'users[0][lastname]': user.lastname || '',
         'users[0][email]': user.email || '',
         'users[0][password]': user.password || '',
-        'users[0][auth]': 'oauth2',
+        'users[0][auth]': 'manual',
         'users[0][idnumber]': user.idnumber || '',
         'users[0][city]': user.city || '',
       });
@@ -84,7 +90,7 @@ class MoodleService {
         'users[0][firstname]': userData.first_name,
         'users[0][lastname]': userData.last_name,
         // 'users[0][email]': userData.email,
-        'users[0][auth]': 'oauth2',
+        'users[0][auth]': 'manual',
         // 'users[0][idnumber]': userData.idnumber,
         'users[0][city]': userData.city || "",
       };
@@ -636,7 +642,7 @@ class MoodleService {
       moodlewsrestformat: 'json',
       courseid: courseId
     };
-    const response = await axios.get(url, { params, timeout: 30000 });
+    const response = await axios.get(url, { params, timeout: 30000, httpsAgent: this.httpsAgent });
     return response.data;
   }
 
@@ -652,7 +658,7 @@ class MoodleService {
       itemid: sectionId,
       value: newName
     };
-    const response = await axios.get(url, { params, timeout: 30000 });
+    const response = await axios.get(url, { params, timeout: 30000, httpsAgent: this.httpsAgent });
     return response.data;
   }
 
@@ -900,7 +906,7 @@ class MoodleService {
         summary: sectionData.summary || '',
         visible: sectionData.visible !== undefined ? sectionData.visible : 1,
         position: sectionData.position || 0  // 0 = thêm vào cuối
-      }, '9f7a6a274527529027a124c78c30a86c');
+      });
 
       if (result && result.sectionid) {
         logger.info(`Section created successfully: ${result.name} (ID: ${result.sectionid}, Section: ${result.section})`);

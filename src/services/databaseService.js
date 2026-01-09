@@ -7,7 +7,7 @@ class DatabaseService {
     this.pool = null;
     this.isConnected = false;
   }
-  //DONE 
+  //DONE
   // Health check endpoint
   async checkConnection() {
     try {
@@ -99,7 +99,7 @@ class DatabaseService {
                     INNER JOIN dbo.TKB_LopHocPhan lhp WITH (NOLOCK) ON lhp.Id = dkhp.IDLopHocPhan
                     INNER JOIN dbo.TKB_MonHoc mh WITH (NOLOCK) ON mh.Id = lhp.IDMonHoc
                     INNER JOIN dbo.TKB_LopHoc lhoc WITH (NOLOCK) ON lhoc.Id = mh.IDLopHoc
-                    WHERE sv.email LIKE '%70@st%' 
+                    WHERE sv.email LIKE '%66@st%' 
                   `;
       const parameters = {};
       if (lastSyncDate) {
@@ -161,7 +161,6 @@ class DatabaseService {
   // DONE
   async getCourses(lastSyncDate = null) {
     try {
-      
       let query2 = `
         SELECT mh.TenMonHoc,lhoc.TenLopHoc, d.TenDot, lhp.Id AS IDLopHocPhan, mh.IDToBoMon, lhoc.NgayCapNhat, mh.SoTietThucHanh, mh.SoTietLyThuyet,
         lhp.MaLopHocPhan
@@ -169,7 +168,7 @@ class DatabaseService {
         INNER JOIN dbo.TKB_LopHoc as lhoc ON lhoc.Id = mh.IDLopHoc
         INNER JOIN dbo.DM_Dot d WITH (NOLOCK) ON lhoc.IDDot = d.Id
         INNER JOIN  dbo.TKB_LopHocPhan as lhp ON lhp.IDMonHoc= mh.ID
-        WHERE lhoc.TenLopHoc LIKE '70%'
+        WHERE lhoc.TenLopHoc LIKE '66%'  AND d.TenDot LIKE '%HK2 2025-2026%'
 `;
       const parameters = {};
       if (lastSyncDate) {
@@ -224,19 +223,20 @@ class DatabaseService {
   async getStudentCourseEnrollments(courseId = null) {
     try {
       let query = `
-        SELECT DISTINCT
-        lhp.MaLopHocPhan,
-        lhoc.TenLopHoc,
-        mh.TenMonHoc,
-        sv.MaSinhVien,
-        sv.HoDem + ' ' + sv.Ten AS HoTenSinhVien,
-        sv.Email
-        FROM dbo.DT_DangKyHocPhan dkhp WITH (NOLOCK)
-        INNER JOIN dbo.DT_SinhVien sv WITH (NOLOCK) ON sv.Id = dkhp.IDSinhVien
-        INNER JOIN dbo.TKB_LopHocPhan lhp WITH (NOLOCK) ON lhp.Id = dkhp.IDLopHocPhan
-        INNER JOIN dbo.TKB_MonHoc mh WITH (NOLOCK) ON mh.Id = lhp.IDMonHoc
-        INNER JOIN dbo.TKB_LopHoc lhoc WITH (NOLOCK) ON lhoc.Id = mh.IDLopHoc
-        WHERE dkhp.IDTrangThaiDangKy IN (1,2,3) AND lhoc.TenLopHoc LIKE '%70%'
+         SELECT DISTINCT
+          lhp.MaLopHocPhan,
+          lhoc.TenLopHoc,
+          mh.TenMonHoc,
+          sv.MaSinhVien,
+          sv.HoDem + ' ' + sv.Ten AS HoTenSinhVien,
+          sv.Email
+          FROM dbo.DT_DangKyHocPhan dkhp WITH (NOLOCK)
+          INNER JOIN dbo.DT_SinhVien sv WITH (NOLOCK) ON sv.Id = dkhp.IDSinhVien
+          INNER JOIN dbo.TKB_LopHocPhan lhp WITH (NOLOCK) ON lhp.Id = dkhp.IDLopHocPhan
+          INNER JOIN dbo.TKB_MonHoc mh WITH (NOLOCK) ON mh.Id = lhp.IDMonHoc
+          INNER JOIN dbo.TKB_LopHoc lhoc WITH (NOLOCK) ON lhoc.Id = mh.IDLopHoc
+          INNER JOIN dbo.DM_Dot d WITH (NOLOCK) ON lhoc.IDDot = d.Id
+          WHERE dkhp.IDTrangThaiDangKy IN (1,2,3) AND lhoc.TenLopHoc LIKE '%66%' AND d.TenDot LIKE '%HK2 2025-2026%'
       `;
       const parameters = {};
       if (courseId) {
@@ -254,17 +254,18 @@ class DatabaseService {
   async getTeacherCourseEnrollments(courseId = null, lastSyncDate = null) {
     try {
       let query = `
-       SELECT DISTINCT lhp.MaLopHocPhan, lhoc.TenLopHoc, mh.TenMonHoc,
-       gv.MaGiangVien, gv.HoDem + ' ' + gv.Ten AS HoTenGiangVien, gv.Email, lhgv.IsTroGiang
-        FROM dbo.TKB_LopHocPhan lhp WITH (NOLOCK)
-        INNER JOIN dbo.TKB_DanhSachLopXepLichHoc ds WITH (NOLOCK) ON ds.IDLopHocPhan = lhp.Id
-        INNER JOIN dbo.TKB_LopXepLichHoc lxl WITH (NOLOCK) ON lxl.Id = ds.IDLopXepLichHoc
-        INNER JOIN dbo.TKB_LichHoc lh WITH (NOLOCK) ON lh.IDLopXepLichHoc = lxl.Id
-        INNER JOIN dbo.TKB_LichHocGiangVien lhgv WITH (NOLOCK) ON lhgv.IDLichHoc = lh.Id
-        INNER JOIN dbo.DM_GiangVien gv WITH (NOLOCK) ON gv.Id = lhgv.IDGiangVien
-        INNER JOIN dbo.TKB_MonHoc mh WITH (NOLOCK) ON mh.Id = lhp.IDMonHoc
-        INNER JOIN dbo.TKB_LopHoc lhoc WITH (NOLOCK) ON lhoc.Id = mh.IDLopHoc
-        WHERE lhoc.TenLopHoc LIKE '70%'
+             SELECT DISTINCT lhp.MaLopHocPhan, lhoc.TenLopHoc, mh.TenMonHoc,
+      gv.MaGiangVien, gv.HoDem + ' ' + gv.Ten AS HoTenGiangVien, gv.Email, lhgv.IsTroGiang
+       FROM dbo.TKB_LopHocPhan lhp WITH (NOLOCK)
+       INNER JOIN dbo.TKB_DanhSachLopXepLichHoc ds WITH (NOLOCK) ON ds.IDLopHocPhan = lhp.Id
+       INNER JOIN dbo.TKB_LopXepLichHoc lxl WITH (NOLOCK) ON lxl.Id = ds.IDLopXepLichHoc
+       INNER JOIN dbo.TKB_LichHoc lh WITH (NOLOCK) ON lh.IDLopXepLichHoc = lxl.Id
+       INNER JOIN dbo.TKB_LichHocGiangVien lhgv WITH (NOLOCK) ON lhgv.IDLichHoc = lh.Id
+       INNER JOIN dbo.DM_GiangVien gv WITH (NOLOCK) ON gv.Id = lhgv.IDGiangVien
+       INNER JOIN dbo.TKB_MonHoc mh WITH (NOLOCK) ON mh.Id = lhp.IDMonHoc
+       INNER JOIN dbo.TKB_LopHoc lhoc WITH (NOLOCK) ON lhoc.Id = mh.IDLopHoc
+       INNER JOIN dbo.DM_Dot d WITH (NOLOCK) ON lhoc.IDDot = d.Id
+       WHERE lhoc.TenLopHoc LIKE '%66%' AND d.TenDot LIKE '%HK2 2025-2026%'
       `;
       const parameters = {};
       if (courseId) {

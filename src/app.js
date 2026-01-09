@@ -158,6 +158,7 @@ class App {
 
       // Initialize database
       await this.initializeDatabase();
+      
       // Initialize scheduler
      // await this.initializeScheduler(); // Tắt tự động đồng bộ
 
