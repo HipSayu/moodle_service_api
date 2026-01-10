@@ -13,7 +13,6 @@ router.get('/health', asyncHandler(async (req, res) => {
     timestamp: new Date().toISOString(),
     services: {
       database: false,
-      databaseGv: false,
       moodle: false
     }
   };
@@ -31,7 +30,7 @@ router.get('/health', asyncHandler(async (req, res) => {
     health.services.moodle = false;
   }
 
-  const overallStatus = health.services.database && health.services.databaseGv && health.services.moodle;
+  const overallStatus = health.services.database && health.services.moodle;
   health.status = overallStatus ? 'ok' : 'error';
 
   res.status(overallStatus ? 200 : 503).json(health);

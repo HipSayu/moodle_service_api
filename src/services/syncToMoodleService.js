@@ -2,6 +2,7 @@ import databaseService from "./databaseService.js";
 import moodleService from "./moodleService.js";
 import { logger, syncLogger } from "../utils/logger.js";
 import { retryOperation } from "../utils/errorHandler.js";
+import CSVHelper from "../utils/csvHelper.js";
 import fs from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
@@ -63,7 +64,12 @@ class SyncToMoodleService {
       let syncCount = 0;
       let errorCount = 0;
       const errors = [];
+      const syncResults = []; // Track all sync results
+
       for (const student of students) {
+        let syncStatus = "Thành công";
+        let errorMessage = "";
+
         try {
           await retryOperation(
             async () => {
@@ -100,6 +106,8 @@ class SyncToMoodleService {
           );
         } catch (error) {
           errorCount++;
+          syncStatus = "Lỗi";
+          errorMessage = error.message;
           errors.push({
             MaSinhVien: student.MaSinhVien,
             Ten: student.Ten,
@@ -112,7 +120,23 @@ class SyncToMoodleService {
             error
           );
         }
+
+        // Add to sync results
+        syncResults.push({
+          MaSinhVien: student.MaSinhVien,
+          HoDem: student.HoDem,
+          Ten: student.Ten,
+          Email: student.Email,
+          NguyenQuan: student.NguyenQuan || "HN",
+          TrangThai: syncStatus,
+          LoiChiTiet: errorMessage,
+          ThoiGian: new Date().toISOString(),
+        });
       }
+
+      // Save results to CSV file
+      const csvFilePath = await CSVHelper.saveSyncResultsToCSV(syncResults, "students");
+
       this.lastSyncDate.students = new Date();
       this.saveLastSync();
 
@@ -129,6 +153,7 @@ class SyncToMoodleService {
         synced: syncCount,
         errors: errorCount,
         errorDetails: errors,
+        csvFile: csvFilePath,
       };
     } catch (error) {
       syncLogger.error("Student sync to Moodle failed:", error);
@@ -549,8 +574,13 @@ class SyncToMoodleService {
       let syncCount = 0;
       let errorCount = 0;
       const errors = [];
+      const syncResults = []; // Track all sync results
 
       for (const course of courses) {
+        let syncStatus = "Thành công";
+        let errorMessage = "";
+        let action = ""; // Tạo mới hoặc Cập nhật
+        
         try {
           await retryOperation(
             async () => {
@@ -596,6 +626,7 @@ class SyncToMoodleService {
                 console.log(courseData.course_fullname);
                 // Cập nhật course hiện có
                 await moodleService.updateCourse(existingCourse.id, courseData);
+                action = "Cập nhật";
 
                 // Kiểm tra và tạo sections nếu thiếu
                 try {
@@ -614,6 +645,7 @@ class SyncToMoodleService {
                 console.log(
                   `Đã tạo khóa học mới ${courseData.course_fullname}`
                 );
+                action = "Tạo mới";
 
                 // Tạo sections dựa trên loại khóa học
                 try {
@@ -718,6 +750,8 @@ class SyncToMoodleService {
           );
         } catch (error) {
           errorCount++;
+          syncStatus = "Lỗi";
+          errorMessage = error.message;
           errors.push({
             course_code: course.MaLopHocPhan,
             error: error.message,
@@ -727,7 +761,22 @@ class SyncToMoodleService {
             error
           );
         }
+        
+        // Add to sync results
+        syncResults.push({
+          MaLopHocPhan: course.MaLopHocPhan,
+          TenLopHoc: course.TenLopHoc,
+          TenMonHoc: course.TenMonHoc,
+          TenDot: course.TenDot,
+          HanhDong: action,
+          TrangThai: syncStatus,
+          LoiChiTiet: errorMessage,
+          ThoiGian: new Date().toISOString(),
+        });
       }
+
+      // Save results to CSV file
+      const csvFilePath = await CSVHelper.saveCourseSyncResultsToCSV(syncResults, "courses");
 
       this.lastSyncDate.courses = new Date();
 
@@ -744,6 +793,7 @@ class SyncToMoodleService {
         synced: syncCount,
         errors: errorCount,
         errorDetails: errors,
+        csvFile: csvFilePath,
       };
     } catch (error) {
       syncLogger.error("Course sync to Moodle failed:", error);
@@ -763,6 +813,7 @@ class SyncToMoodleService {
       let syncCount = 0;
       let errorCount = 0;
       const errors = [];
+      const syncResults = []; // Track all enrollment results
 
       for (const course of courses) {
         try {
@@ -770,25 +821,33 @@ class SyncToMoodleService {
           const moodleCourse = await moodleService.getCourseByShortname(
             course.MaLopHocPhan
           );
-          console.log(`Khóa học ${moodleCourse.fullname}`);
-          
+          console.log(`Khóa học ${moodleCourse?.fullname || course.MaLopHocPhan}`);
+
           if (!moodleCourse) {
+            syncLogger.warn(`Course not found in Moodle: ${course.MaLopHocPhan}`);
             continue;
           }
+          
           // Lấy danh sách đăng ký từ SQL Server
           const enrollments = await databaseService.getStudentCourseEnrollments(
             course.MaLopHocPhan,
             lastSync
           );
-          
+
           totalEnrollments += enrollments.length;
 
           for (const enrollment of enrollments) {
+            let syncStatus = "Thành công";
+            let errorMessage = "";
+            
             try {
               const moodleUser = await moodleService.getUserByIdNumber(
                 enrollment.MaSinhVien
               );
-              console.log(`Sinh Viên${enrollment.TenMonHoc}-${enrollment.MaSinhVien}`);
+              console.log(
+                `Sinh Viên ${enrollment.TenMonHoc}-${enrollment.MaSinhVien}`
+              );
+              
               if (moodleUser) {
                 // Đăng ký student vào course
                 await moodleService.enrollUserToCourse(
@@ -803,24 +862,58 @@ class SyncToMoodleService {
                 syncLogger.debug(
                   `Enrolled student ${enrollment.HoTenSinhVien} to course ${course.TenMonHoc}`
                 );
+              } else {
+                syncStatus = "Lỗi";
+                errorMessage = "Không tìm thấy sinh viên trong Moodle";
+                errorCount++;
+                errors.push({
+                  MaSinhVien: enrollment.MaSinhVien,
+                  MaLopHocPhan: course.MaLopHocPhan,
+                  error: errorMessage,
+                });
               }
             } catch (enrollError) {
               errorCount++;
+              syncStatus = "Lỗi";
+              errorMessage = enrollError.message;
               errors.push({
-                course_code: course.course_code,
-                student_id: enrollment.student_id,
+                MaSinhVien: enrollment.MaSinhVien,
+                MaLopHocPhan: course.MaLopHocPhan,
                 error: enrollError.message,
               });
+              syncLogger.error(
+                `Failed to enroll student ${enrollment.MaSinhVien} to course ${course.MaLopHocPhan}:`,
+                enrollError
+              );
             }
+            
+            // Add to sync results
+            syncResults.push({
+              MaSinhVien: enrollment.MaSinhVien,
+              HoTenSinhVien: enrollment.HoTenSinhVien,
+              MaLopHocPhan: course.MaLopHocPhan,
+              TenMonHoc: course.TenMonHoc,
+              TenLopHoc: course.TenLopHoc,
+              TenDot: course.TenDot,
+              TrangThai: syncStatus,
+              LoiChiTiet: errorMessage,
+              ThoiGian: new Date().toISOString(),
+            });
           }
           console.log(`Done_______________________${course.TenMonHoc}`);
         } catch (courseError) {
           syncLogger.error(
-            `Failed to sync enrollments for course ${course.course_code}:`,
+            `Failed to sync enrollments for course ${course.MaLopHocPhan}:`,
             courseError
           );
         }
       }
+
+      // Save results to CSV file
+      const csvFilePath = await CSVHelper.saveEnrollmentSyncResultsToCSV(
+        syncResults,
+        "enrollments_students"
+      );
 
       this.lastSyncDate.studentEnrollments = new Date();
       this.saveLastSync();
@@ -838,6 +931,7 @@ class SyncToMoodleService {
         synced: syncCount,
         errors: errorCount,
         errorDetails: errors,
+        csvFile: csvFilePath,
       };
     } catch (error) {
       syncLogger.error("Enrollment sync to Moodle failed:", error);
