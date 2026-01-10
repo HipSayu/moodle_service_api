@@ -99,7 +99,7 @@ class DatabaseService {
                     INNER JOIN dbo.TKB_LopHocPhan lhp WITH (NOLOCK) ON lhp.Id = dkhp.IDLopHocPhan
                     INNER JOIN dbo.TKB_MonHoc mh WITH (NOLOCK) ON mh.Id = lhp.IDMonHoc
                     INNER JOIN dbo.TKB_LopHoc lhoc WITH (NOLOCK) ON lhoc.Id = mh.IDLopHoc
-                    WHERE sv.email LIKE '%69@st%' 
+                    WHERE sv.email LIKE '%68@st%' 
                   `;
       const parameters = {};
       if (lastSyncDate) {
@@ -168,7 +168,7 @@ class DatabaseService {
         INNER JOIN dbo.TKB_LopHoc as lhoc ON lhoc.Id = mh.IDLopHoc
         INNER JOIN dbo.DM_Dot d WITH (NOLOCK) ON lhoc.IDDot = d.Id
         INNER JOIN  dbo.TKB_LopHocPhan as lhp ON lhp.IDMonHoc= mh.ID
-        WHERE lhoc.TenLopHoc LIKE '69%'  AND d.TenDot LIKE '%HK2 2025-2026%'
+        WHERE lhoc.TenLopHoc LIKE '68%'  AND d.TenDot LIKE '%HK2 2025-2026%'
 `;
       const parameters = {};
       if (lastSyncDate) {
@@ -236,7 +236,7 @@ class DatabaseService {
           INNER JOIN dbo.TKB_MonHoc mh WITH (NOLOCK) ON mh.Id = lhp.IDMonHoc
           INNER JOIN dbo.TKB_LopHoc lhoc WITH (NOLOCK) ON lhoc.Id = mh.IDLopHoc
           INNER JOIN dbo.DM_Dot d WITH (NOLOCK) ON lhoc.IDDot = d.Id
-          WHERE dkhp.IDTrangThaiDangKy IN (1,2,3) AND lhoc.TenLopHoc LIKE '%69%' AND d.TenDot LIKE '%HK2 2025-2026%'
+          WHERE dkhp.IDTrangThaiDangKy IN (1,2,3) AND lhoc.TenLopHoc LIKE '%68%' AND d.TenDot LIKE '%HK2 2025-2026%'
       `;
       const parameters = {};
       if (courseId) {
@@ -265,7 +265,7 @@ class DatabaseService {
        INNER JOIN dbo.TKB_MonHoc mh WITH (NOLOCK) ON mh.Id = lhp.IDMonHoc
        INNER JOIN dbo.TKB_LopHoc lhoc WITH (NOLOCK) ON lhoc.Id = mh.IDLopHoc
        INNER JOIN dbo.DM_Dot d WITH (NOLOCK) ON lhoc.IDDot = d.Id
-       WHERE lhoc.TenLopHoc LIKE '%69%' AND d.TenDot LIKE '%HK2 2025-2026%'
+       WHERE lhoc.TenLopHoc LIKE '%68%' AND d.TenDot LIKE '%HK2 2025-2026%'
       `;
       const parameters = {};
       if (courseId) {

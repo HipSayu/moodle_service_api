@@ -98,7 +98,6 @@ class SyncToMoodleService {
                   `Tạo user Mới ${userData.first_name} ${userData.last_name}`
                 );
               }
-
               syncCount++;
             },
             3,
@@ -813,7 +812,8 @@ class SyncToMoodleService {
       let syncCount = 0;
       let errorCount = 0;
       const errors = [];
-      const syncResults = []; // Track all enrollment results
+      const csvFiles = []; // Track all CSV files created
+      const courseResultsMap = new Map(); // Group results by course
 
       for (const course of courses) {
         try {
@@ -834,7 +834,12 @@ class SyncToMoodleService {
             lastSync
           );
 
+          if (enrollments.length === 0) {
+            continue; // Skip courses with no enrollments
+          }
+
           totalEnrollments += enrollments.length;
+          const courseEnrollmentResults = []; // Results for this specific course
 
           for (const enrollment of enrollments) {
             let syncStatus = "Thành công";
@@ -887,19 +892,40 @@ class SyncToMoodleService {
               );
             }
             
-            // Add to sync results
-            syncResults.push({
+            // Add to course-specific results
+            courseEnrollmentResults.push({
               MaSinhVien: enrollment.MaSinhVien,
               HoTenSinhVien: enrollment.HoTenSinhVien,
-              MaLopHocPhan: course.MaLopHocPhan,
-              TenMonHoc: course.TenMonHoc,
-              TenLopHoc: course.TenLopHoc,
-              TenDot: course.TenDot,
               TrangThai: syncStatus,
               LoiChiTiet: errorMessage,
               ThoiGian: new Date().toISOString(),
             });
           }
+
+          // Save CSV file for this course
+          if (courseEnrollmentResults.length > 0) {
+            try {
+              const csvFilePath = await CSVHelper.saveCourseEnrollmentToCSV(
+                courseEnrollmentResults,
+                course.MaLopHocPhan,
+                course.TenMonHoc
+              );
+              csvFiles.push({
+                courseCode: course.MaLopHocPhan,
+                courseName: course.TenMonHoc,
+                filePath: csvFilePath,
+                totalStudents: courseEnrollmentResults.length,
+                successCount: courseEnrollmentResults.filter(r => r.TrangThai === "Thành công").length,
+                errorCount: courseEnrollmentResults.filter(r => r.TrangThai === "Lỗi").length,
+              });
+            } catch (csvError) {
+              syncLogger.error(
+                `Failed to save CSV for course ${course.MaLopHocPhan}:`,
+                csvError
+              );
+            }
+          }
+
           console.log(`Done_______________________${course.TenMonHoc}`);
         } catch (courseError) {
           syncLogger.error(
@@ -909,12 +935,6 @@ class SyncToMoodleService {
         }
       }
 
-      // Save results to CSV file
-      const csvFilePath = await CSVHelper.saveEnrollmentSyncResultsToCSV(
-        syncResults,
-        "enrollments_students"
-      );
-
       this.lastSyncDate.studentEnrollments = new Date();
       this.saveLastSync();
 
@@ -922,6 +942,7 @@ class SyncToMoodleService {
         totalEnrollments,
         syncCount,
         errorCount,
+        csvFilesCreated: csvFiles.length,
         errors: errors.slice(0, 10),
       });
 
@@ -931,7 +952,8 @@ class SyncToMoodleService {
         synced: syncCount,
         errors: errorCount,
         errorDetails: errors,
-        csvFile: csvFilePath,
+        csvFiles: csvFiles,
+        csvFilesCount: csvFiles.length,
       };
     } catch (error) {
       syncLogger.error("Enrollment sync to Moodle failed:", error);

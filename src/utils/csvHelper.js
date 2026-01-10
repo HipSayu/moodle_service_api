@@ -160,6 +160,50 @@ class CSVHelper {
       throw error;
     }
   }
+
+  /**
+   * Save enrollment results for a single course to CSV file
+   * @param {Array} results - Array of enrollment results for a course
+   * @param {string} courseCode - Course code for filename
+   * @param {string} courseName - Course name for logging
+   * @returns {Promise<string>} Path to created CSV file
+   */
+  static async saveCourseEnrollmentToCSV(results, courseCode, courseName) {
+    try {
+      const timestamp = new Date()
+        .toISOString()
+        .replace(/[:.]/g, "-")
+        .slice(0, -5);
+      const csvDir = path.join(__dirname, "../../logs/csv/enrollments");
+      if (!fs.existsSync(csvDir)) {
+        fs.mkdirSync(csvDir, { recursive: true });
+      }
+      
+      // Sanitize filename - remove special characters
+      const safeCourseCode = courseCode.replace(/[^a-zA-Z0-9_-]/g, "_");
+      const safeCourseName = courseName.replace(/[^a-zA-Z0-9_-]/g, "_").replace(/\s+/g, "_");
+      const csvFilePath = path.join(csvDir, `${safeCourseCode}_${safeCourseName}_${timestamp}.csv`);
+
+      const csvWriter = createObjectCsvWriter({
+        path: csvFilePath,
+        header: [
+          { id: "MaSinhVien", title: "Mã Sinh Viên" },
+          { id: "HoTenSinhVien", title: "Họ Tên Sinh Viên" },
+          { id: "TrangThai", title: "Trạng Thái" },
+          { id: "LoiChiTiet", title: "Lỗi Chi Tiết" },
+          { id: "ThoiGian", title: "Thời Gian" },
+        ],
+        encoding: "utf8",
+      });
+
+      await csvWriter.writeRecords(results);
+      syncLogger.info(`Saved enrollment for course ${courseCode} to CSV: ${csvFilePath}`);
+      return csvFilePath;
+    } catch (error) {
+      syncLogger.error(`Failed to save enrollment for course ${courseCode} to CSV:`, error);
+      throw error;
+    }
+  }
 }
 
 export default CSVHelper;

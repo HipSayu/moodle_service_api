@@ -91,6 +91,7 @@ class MoodleService {
         'users[0][lastname]': userData.last_name,
         // 'users[0][email]': userData.email,
         'users[0][auth]': 'manual',
+        'users[0][password]': userData.password,
         // 'users[0][idnumber]': userData.idnumber,
         'users[0][city]': userData.city || "",
       };
