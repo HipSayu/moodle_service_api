@@ -813,7 +813,6 @@ class SyncToMoodleService {
       let errorCount = 0;
       const errors = [];
       const csvFiles = []; // Track all CSV files created
-      const courseResultsMap = new Map(); // Group results by course
 
       for (const course of courses) {
         try {
