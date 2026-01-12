@@ -98,7 +98,7 @@ class DatabaseService {
                     INNER JOIN dbo.TKB_MonHoc mh WITH (NOLOCK) ON mh.Id = lhp.IDMonHoc
                     INNER JOIN dbo.TKB_LopHoc lhoc WITH (NOLOCK) ON lhoc.Id = mh.IDLopHoc
                     INNER JOIN dbo.DM_Dot d WITH (NOLOCK) ON lhoc.IDDot = d.Id
-                    WHERE sv.email LIKE '%66@st%' AND d.TenDot LIKE '%HK2 2025-2026%'
+                    WHERE sv.email LIKE '%67@st%' AND d.TenDot LIKE '%HK2 2025-2026%'
                   `;
       const parameters = {};
       if (lastSyncDate) {
@@ -167,7 +167,7 @@ class DatabaseService {
         INNER JOIN dbo.TKB_LopHoc as lhoc ON lhoc.Id = mh.IDLopHoc
         INNER JOIN dbo.DM_Dot d WITH (NOLOCK) ON lhoc.IDDot = d.Id
         INNER JOIN  dbo.TKB_LopHocPhan as lhp ON lhp.IDMonHoc= mh.ID
-        WHERE lhoc.TenLopHoc LIKE '66%'  AND d.TenDot LIKE '%HK2 2025-2026%'
+        WHERE lhoc.TenLopHoc LIKE '67%'  AND d.TenDot LIKE '%HK2 2025-2026%'
 `;
       const parameters = {};
       if (lastSyncDate) {
@@ -235,7 +235,7 @@ class DatabaseService {
           INNER JOIN dbo.TKB_MonHoc mh WITH (NOLOCK) ON mh.Id = lhp.IDMonHoc
           INNER JOIN dbo.TKB_LopHoc lhoc WITH (NOLOCK) ON lhoc.Id = mh.IDLopHoc
           INNER JOIN dbo.DM_Dot d WITH (NOLOCK) ON lhoc.IDDot = d.Id
-          WHERE dkhp.IDTrangThaiDangKy IN (1,2,3) AND lhoc.TenLopHoc LIKE '%66%' AND d.TenDot LIKE '%HK2 2025-2026%'
+          WHERE dkhp.IDTrangThaiDangKy IN (1,2,3) AND lhoc.TenLopHoc LIKE '%67%' AND d.TenDot LIKE '%HK2 2025-2026%'
       `;
       const parameters = {};
       if (courseId) {
@@ -264,7 +264,7 @@ class DatabaseService {
        INNER JOIN dbo.TKB_MonHoc mh WITH (NOLOCK) ON mh.Id = lhp.IDMonHoc
        INNER JOIN dbo.TKB_LopHoc lhoc WITH (NOLOCK) ON lhoc.Id = mh.IDLopHoc
        INNER JOIN dbo.DM_Dot d WITH (NOLOCK) ON lhoc.IDDot = d.Id
-       WHERE lhoc.TenLopHoc LIKE '%66%' AND d.TenDot LIKE '%HK2 2025-2026%'
+       WHERE lhoc.TenLopHoc LIKE '%67%' AND d.TenDot LIKE '%HK2 2025-2026%'
       `;
       const parameters = {};
       if (courseId) {
@@ -302,7 +302,7 @@ class DatabaseService {
                   INNER JOIN dbo.TKB_LopHoc AS lh ON mh.IDLopHoc = lh.Id 
                   INNER JOIN dbo.DT_KetQuaHocTapMonHoc AS kq ON kq.IDLopHocPhan = lhp.Id AND kq.IDSinhVien = dk.IDSinhVien
                   INNER JOIN dbo.DT_SinhVien AS sv ON kq.IDSinhVien = sv.Id
-                  WHERE (dk.IDTrangThaiDangKy IN (1, 2, 3)) AND lh.TenLopHoc LIKE '66'
+                  WHERE (dk.IDTrangThaiDangKy IN (1, 2, 3)) AND lh.TenLopHoc LIKE '67'
 `;
       const parameters = {};
 

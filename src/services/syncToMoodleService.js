@@ -972,6 +972,7 @@ class SyncToMoodleService {
       let syncCount = 0;
       let errorCount = 0;
       const errors = [];
+      const csvFiles = []; // Track all CSV files created
 
       for (const course of courses) {
         try {
@@ -979,20 +980,39 @@ class SyncToMoodleService {
           const moodleCourse = await moodleService.getCourseByShortname(
             course.MaLopHocPhan
           );
+          console.log(`Khóa học ${moodleCourse?.fullname || course.MaLopHocPhan}`);
+
           if (!moodleCourse) {
+            syncLogger.warn(`Course not found in Moodle: ${course.MaLopHocPhan}`);
             continue;
           }
+          
           // Lấy danh sách đăng ký giảng viên từ HRM_NUCE database
           const enrollments = await databaseService.getTeacherCourseEnrollments(
             course.MaLopHocPhan,
             lastSync
           );
+
+          if (enrollments.length === 0) {
+            continue; // Skip courses with no teacher enrollments
+          }
+
           totalEnrollments += enrollments.length;
+          const courseEnrollmentResults = []; // Results for this specific course
+
           for (const enrollment of enrollments) {
+            let syncStatus = "Thành công";
+            let errorMessage = "";
+            let hanhDong = "Cập nhật"; // Mặc định là cập nhật
+
             try {
               const moodleUser = await moodleService.getUserByIdNumber(
                 enrollment.MaGiangVien
               );
+              console.log(
+                `Giảng viên ${enrollment.HoTenGiangVien}-${enrollment.MaGiangVien}`
+              );
+
               if (moodleUser) {
                 // Xác định role dựa trên trường IsTroGiang
                 // IsTroGiang = 1: Trợ giảng (roleId = 4)
@@ -1013,22 +1033,97 @@ class SyncToMoodleService {
                 );
 
                 syncCount++;
+                hanhDong = "Đăng ký mới"; // If successful, it's a new enrollment
                 syncLogger.debug(
                   `Enrolled ${roleName} ${enrollment.HoTenGiangVien} to course ${course.TenMonHoc} (role: ${roleId})`
                 );
+
+                // Add to course-specific results
+                courseEnrollmentResults.push({
+                  MaGiangVien: enrollment.MaGiangVien,
+                  HoTenGiangVien: enrollment.HoTenGiangVien,
+                  LoaiGiangVien: roleName,
+                  TrangThai: syncStatus,
+                  HanhDong: hanhDong,
+                  LoiChiTiet: errorMessage,
+                  ThoiGian: new Date().toISOString(),
+                });
+              } else {
+                syncStatus = "Lỗi";
+                errorMessage = "Không tìm thấy giảng viên trong Moodle";
+                errorCount++;
+                errors.push({
+                  MaGiangVien: enrollment.MaGiangVien,
+                  MaLopHocPhan: course.MaLopHocPhan,
+                  error: errorMessage,
+                });
+
+                // Add to course-specific results
+                courseEnrollmentResults.push({
+                  MaGiangVien: enrollment.MaGiangVien,
+                  HoTenGiangVien: enrollment.HoTenGiangVien,
+                  LoaiGiangVien: enrollment.IsTroGiang === 1 ? "Trợ giảng" : "Giảng viên chính",
+                  TrangThai: syncStatus,
+                  HanhDong: "N/A",
+                  LoiChiTiet: errorMessage,
+                  ThoiGian: new Date().toISOString(),
+                });
               }
             } catch (enrollError) {
               errorCount++;
+              syncStatus = "Lỗi";
+              errorMessage = enrollError.message;
               errors.push({
-                course_code: course.course_code,
-                teacher_id: enrollment.teacher_id,
+                MaGiangVien: enrollment.MaGiangVien,
+                MaLopHocPhan: course.MaLopHocPhan,
                 error: enrollError.message,
+              });
+              syncLogger.error(
+                `Failed to enroll teacher ${enrollment.MaGiangVien} to course ${course.MaLopHocPhan}:`,
+                enrollError
+              );
+
+              // Add to course-specific results
+              courseEnrollmentResults.push({
+                MaGiangVien: enrollment.MaGiangVien,
+                HoTenGiangVien: enrollment.HoTenGiangVien,
+                LoaiGiangVien: enrollment.IsTroGiang === 1 ? "Trợ giảng" : "Giảng viên chính",
+                TrangThai: syncStatus,
+                HanhDong: "N/A",
+                LoiChiTiet: errorMessage,
+                ThoiGian: new Date().toISOString(),
               });
             }
           }
+
+          // Save CSV file for this course
+          if (courseEnrollmentResults.length > 0) {
+            try {
+              const csvFilePath = await CSVHelper.saveTeacherCourseEnrollmentToCSV(
+                courseEnrollmentResults,
+                course.MaLopHocPhan,
+                course.TenMonHoc
+              );
+              csvFiles.push({
+                courseCode: course.MaLopHocPhan,
+                courseName: course.TenMonHoc,
+                filePath: csvFilePath,
+                totalTeachers: courseEnrollmentResults.length,
+                successCount: courseEnrollmentResults.filter(r => r.TrangThai === "Thành công").length,
+                errorCount: courseEnrollmentResults.filter(r => r.TrangThai === "Lỗi").length,
+              });
+            } catch (csvError) {
+              syncLogger.error(
+                `Failed to save CSV for course ${course.MaLopHocPhan}:`,
+                csvError
+              );
+            }
+          }
+
+          console.log(`Done_______________________${course.TenMonHoc}`);
         } catch (courseError) {
           syncLogger.error(
-            `Failed to sync teacher enrollments for course ${course.course_code}:`,
+            `Failed to sync teacher enrollments for course ${course.MaLopHocPhan}:`,
             courseError
           );
         }
@@ -1046,7 +1141,9 @@ class SyncToMoodleService {
         total: totalEnrollments,
         synced: syncCount,
         errors: errorCount,
-        errorDetails: errors.slice(0, 10),
+        errorDetails: errors,
+        csvFiles: csvFiles,
+        csvFilesCount: csvFiles.length,
       };
     } catch (error) {
       syncLogger.error("Teacher enrollment sync to Moodle failed:", error);

@@ -232,6 +232,56 @@ class CSVHelper {
       throw error;
     }
   }
+
+  /**
+   * Save teacher enrollment results for a single course to CSV file
+   * @param {Array} results - Array of teacher enrollment results for a course
+   * @param {string} courseCode - Course code for filename
+   * @param {string} courseName - Course name for logging
+   * @returns {Promise<string>} Path to created CSV file
+   */
+  static async saveTeacherCourseEnrollmentToCSV(results, courseCode, courseName) {
+    try {
+      const timestamp = new Date()
+        .toISOString()
+        .replace(/[:.]/g, "-")
+        .slice(0, -5);
+      const csvDir = path.join(__dirname, "../../logs/csv/teacher_enrollments");
+      if (!fs.existsSync(csvDir)) {
+        fs.mkdirSync(csvDir, { recursive: true });
+      }
+      
+      // Convert Vietnamese to ASCII first, then sanitize
+      const asciiCourseName = this.removeVietnameseTones(courseName);
+      const safeCourseCode = courseCode.replace(/[^a-zA-Z0-9_-]/g, "_");
+      const safeCourseName = asciiCourseName.replace(/[^a-zA-Z0-9_-]/g, "_").replace(/\s+/g, "_");
+      const csvFilePath = path.join(csvDir, `${safeCourseCode}_${safeCourseName}_${timestamp}.csv`);
+      
+      syncLogger.info(`Creating CSV for teacher enrollment: ${courseCode} - ${courseName}`);
+      syncLogger.info(`Safe filename: ${safeCourseCode}_${safeCourseName}_${timestamp}.csv`);
+
+      const csvWriter = createObjectCsvWriter({
+        path: csvFilePath,
+        header: [
+          { id: "MaGiangVien", title: "Mã Giảng Viên" },
+          { id: "HoTenGiangVien", title: "Họ Tên Giảng Viên" },
+          { id: "LoaiGiangVien", title: "Loại Giảng Viên" },
+          { id: "TrangThai", title: "Trạng Thái" },
+          { id: "HanhDong", title: "Hành Động" },
+          { id: "LoiChiTiet", title: "Lỗi Chi Tiết" },
+          { id: "ThoiGian", title: "Thời Gian" },
+        ],
+        encoding: "utf8",
+      });
+
+      await csvWriter.writeRecords(results);
+      syncLogger.info(`Saved teacher enrollment for course ${courseCode} to CSV: ${csvFilePath}`);
+      return csvFilePath;
+    } catch (error) {
+      syncLogger.error(`Failed to save teacher enrollment for course ${courseCode} to CSV:`, error);
+      throw error;
+    }
+  }
 }
 
 export default CSVHelper;
