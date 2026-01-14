@@ -250,6 +250,39 @@ class DatabaseService {
     }
   }
 
+
+
+  async getOneStudentCourseEnrollments(courseId = null) {
+    try {
+      let query = `
+        SELECT DISTINCT
+          lhp.MaLopHocPhan,
+          lhoc.TenLopHoc,
+          mh.TenMonHoc,
+          sv.MaSinhVien,
+          sv.HoDem + ' ' + sv.Ten AS HoTenSinhVien,
+          sv.Email
+          FROM dbo.DT_DangKyHocPhan dkhp WITH (NOLOCK)
+          INNER JOIN dbo.DT_SinhVien sv WITH (NOLOCK) ON sv.Id = dkhp.IDSinhVien
+          INNER JOIN dbo.TKB_LopHocPhan lhp WITH (NOLOCK) ON lhp.Id = dkhp.IDLopHocPhan
+          INNER JOIN dbo.TKB_MonHoc mh WITH (NOLOCK) ON mh.Id = lhp.IDMonHoc
+          INNER JOIN dbo.TKB_LopHoc lhoc WITH (NOLOCK) ON lhoc.Id = mh.IDLopHoc
+          INNER JOIN dbo.DM_Dot d WITH (NOLOCK) ON lhoc.IDDot = d.Id
+          WHERE dkhp.IDTrangThaiDangKy IN (1,2,3) AND lhoc.TenLopHoc LIKE '%67%' AND d.TenDot LIKE '%HK2 2025-2026%' AND sv.MaSinhVien = '0098667'
+      `;
+      const parameters = {};
+      if (courseId) {
+        query += "AND lhp.MaLopHocPhan = @courseId";
+        parameters.courseId = courseId;
+      }
+      const result = await this.executeQuery(query, parameters);
+      return result.recordset;
+    } catch (error) {
+      logger.error("Error getting course enrollments:", error);
+      throw error;
+    }
+  }
+
   async getTeacherCourseEnrollments(courseId = null, lastSyncDate = null) {
     try {
       let query = `
