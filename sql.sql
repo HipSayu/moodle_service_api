@@ -285,3 +285,20 @@ LEFT JOIN dbo.DT_DangKyHocPhan dkhp WITH (NOLOCK) ON dkhp.IDLopHocPhan = lhp.Id
 WHERE lhp.IsXepLich = 1 AND lhoc.TenLopHoc='66CS2'
 GROUP BY lhp.Id, lhp.MaLopHocPhan, mh.TenMonHoc, lhoc.TenLopHoc, lhoc.MaLopHoc,mh.IDLoaiMonHoc,d.TenDot,mh.SoTietThucHanh,mh.SoTietLyThuyet, mh.IDToBoMon, bm.TenBoMon, bm.TenPhongBan
 ORDER BY lhoc.TenLopHoc, lhp.MaLopHocPhan;
+
+
+
+
+--  Lấy lớp theo Liên thông
+  SELECT DISTINCT
+          lhp.MaLopHocPhan,
+          lhoc.TenLopHoc,
+          mh.TenMonHoc,
+          d.TenDot 
+          FROM dbo.DT_DangKyHocPhan dkhp WITH (NOLOCK)
+          INNER JOIN dbo.DT_SinhVien sv WITH (NOLOCK) ON sv.Id = dkhp.IDSinhVien
+          INNER JOIN dbo.TKB_LopHocPhan lhp WITH (NOLOCK) ON lhp.Id = dkhp.IDLopHocPhan
+          INNER JOIN dbo.TKB_MonHoc mh WITH (NOLOCK) ON mh.Id = lhp.IDMonHoc
+          INNER JOIN dbo.TKB_LopHoc lhoc WITH (NOLOCK) ON lhoc.Id = mh.IDLopHoc
+          INNER JOIN dbo.DM_Dot d WITH (NOLOCK) ON lhoc.IDDot = d.Id
+          WHERE  d.TenDot LIKE '%HK2 2025-2026%' AND sv.IDLoaiHinhDT in(17,27)
