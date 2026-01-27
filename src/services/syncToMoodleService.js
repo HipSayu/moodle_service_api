@@ -184,8 +184,8 @@ class SyncToMoodleService {
 
               const userData = {
                 username: teacher.MaNhanSu,
-                first_name: teacher.HoDem,
-                last_name: teacher.Ten,
+                first_name: teacher.Ten,
+                last_name: teacher.HoDem,
                 email:
                   teacher.Email && teacher.Email.trim() !== ""
                     ? teacher.Email.trim()
@@ -195,7 +195,7 @@ class SyncToMoodleService {
                     ? teacher.NguyenQuan.trim()
                     : "Hanoi",
                 idnumber: teacher.MaNhanSu,
-                password: teacher.MaNhanSu,
+                password: `${teacher.MaNhanSu}@Huce`,
               };
 
               if (existingUser) {
@@ -1144,6 +1144,194 @@ class SyncToMoodleService {
 
           // Lấy danh sách đăng ký giảng viên từ HRM_NUCE database
           const enrollments = await databaseService.getTeacherCourseEnrollments(
+            course.MaLopHocPhan,
+            lastSync
+          );
+
+          if (enrollments.length === 0) {
+            continue; // Skip courses with no teacher enrollments
+          }
+
+          totalEnrollments += enrollments.length;
+          const courseEnrollmentResults = []; // Results for this specific course
+
+          for (const enrollment of enrollments) {
+            let syncStatus = "Thành công";
+            let errorMessage = "";
+            let hanhDong = "Cập nhật"; // Mặc định là cập nhật
+
+            try {
+              const moodleUser = await moodleService.getUserByIdNumber(
+                enrollment.MaGiangVien
+              );
+              console.log(
+                `Giảng viên ${enrollment.HoTenGiangVien}-${enrollment.MaGiangVien}`
+              );
+
+              if (moodleUser) {
+                // Xác định role dựa trên trường IsTroGiang
+                // IsTroGiang = 1: Trợ giảng (roleId = 4)
+                // IsTroGiang = 0 hoặc null: Giảng viên chính (roleId = 3)
+                const roleId = enrollment.IsTroGiang === 1 ? 4 : 3;
+                const roleName =
+                  enrollment.IsTroGiang === 1
+                    ? "Trợ giảng"
+                    : "Giảng viên chính";
+
+                // Đăng ký teacher vào course với role tương ứng
+                await moodleService.enrollTeacherToCourse(
+                  moodleUser.id,
+                  moodleCourse.id,
+                  roleId,
+                  moodleUser,
+                  moodleCourse
+                );
+                syncCount++;
+                hanhDong = "Đăng ký mới"; // If successful, it's a new enrollment
+                syncLogger.debug(
+                  `Enrolled ${roleName} ${enrollment.HoTenGiangVien} to course ${course.TenMonHoc} (role: ${roleId})`
+                );
+
+                // Add to course-specific results
+                courseEnrollmentResults.push({
+                  MaGiangVien: enrollment.MaGiangVien,
+                  HoTenGiangVien: enrollment.HoTenGiangVien,
+                  LoaiGiangVien: roleName,
+                  TrangThai: syncStatus,
+                  HanhDong: hanhDong,
+                  LoiChiTiet: errorMessage,
+                  ThoiGian: new Date().toISOString(),
+                });
+              } else {
+                syncStatus = "Lỗi";
+                errorMessage = "Không tìm thấy giảng viên trong Moodle";
+                errorCount++;
+                errors.push({
+                  MaGiangVien: enrollment.MaGiangVien,
+                  MaLopHocPhan: course.MaLopHocPhan,
+                  error: errorMessage,
+                });
+
+                // Add to course-specific results
+                courseEnrollmentResults.push({
+                  MaGiangVien: enrollment.MaGiangVien,
+                  HoTenGiangVien: enrollment.HoTenGiangVien,
+                  LoaiGiangVien: enrollment.IsTroGiang === 1 ? "Trợ giảng" : "Giảng viên chính",
+                  TrangThai: syncStatus,
+                  HanhDong: "N/A",
+                  LoiChiTiet: errorMessage,
+                  ThoiGian: new Date().toISOString(),
+                });
+              }
+            } catch (enrollError) {
+              errorCount++;
+              syncStatus = "Lỗi";
+              errorMessage = enrollError.message;
+              errors.push({
+                MaGiangVien: enrollment.MaGiangVien,
+                MaLopHocPhan: course.MaLopHocPhan,
+                error: enrollError.message,
+              });
+              syncLogger.error(
+                `Failed to enroll teacher ${enrollment.MaGiangVien} to course ${course.MaLopHocPhan}:`,
+                enrollError
+              );
+
+              // Add to course-specific results
+              courseEnrollmentResults.push({
+                MaGiangVien: enrollment.MaGiangVien,
+                HoTenGiangVien: enrollment.HoTenGiangVien,
+                LoaiGiangVien: enrollment.IsTroGiang === 1 ? "Trợ giảng" : "Giảng viên chính",
+                TrangThai: syncStatus,
+                HanhDong: "N/A",
+                LoiChiTiet: errorMessage,
+                ThoiGian: new Date().toISOString(),
+              });
+            }
+          }
+
+          // Save CSV file for this course
+          if (courseEnrollmentResults.length > 0) {
+            try {
+              const csvFilePath = await CSVHelper.saveTeacherCourseEnrollmentToCSV(
+                courseEnrollmentResults,
+                course.MaLopHocPhan,
+                course.TenMonHoc
+              );
+              csvFiles.push({
+                courseCode: course.MaLopHocPhan,
+                courseName: course.TenMonHoc,
+                filePath: csvFilePath,
+                totalTeachers: courseEnrollmentResults.length,
+                successCount: courseEnrollmentResults.filter(r => r.TrangThai === "Thành công").length,
+                errorCount: courseEnrollmentResults.filter(r => r.TrangThai === "Lỗi").length,
+              });
+            } catch (csvError) {
+              syncLogger.error(
+                `Failed to save CSV for course ${course.MaLopHocPhan}:`,
+                csvError
+              );
+            }
+          }
+
+          console.log(`Done_______________________${course.TenMonHoc}`);
+        } catch (courseError) {
+          syncLogger.error(
+            `Failed to sync teacher enrollments for course ${course.MaLopHocPhan}:`,
+            courseError
+          );
+        }
+      }
+
+      this.lastSyncDate.teacherEnrollments = new Date();
+      this.saveLastSync();
+
+      syncLogger.info(
+        `Teacher enrollment sync completed: ${syncCount}/${totalEnrollments} synced, ${errorCount} errors (Role: IsTroGiang=1→Trợ giảng, else→Giảng viên chính)`
+      );
+
+      return {
+        success: true,
+        total: totalEnrollments,
+        synced: syncCount,
+        errors: errorCount,
+        errorDetails: errors,
+        csvFiles: csvFiles,
+        csvFilesCount: csvFiles.length,
+      };
+    } catch (error) {
+      syncLogger.error("Teacher enrollment sync to Moodle failed:", error);
+      throw error;
+    }
+  }
+  
+
+  async syncTeacherEnrollmentsToMoodleOne() {
+    try {
+      syncLogger.info("Starting teacher enrollment sync to Moodle");
+      const lastSync = this.lastSyncDate.teacherEnrollments;
+      const courses = await databaseService.getTeacherCourseEnrollmentsOne();
+      let totalEnrollments = 0;
+      let syncCount = 0;
+      let errorCount = 0;
+      const errors = [];
+      const csvFiles = []; // Track all CSV files created
+
+      for (const course of courses) {
+        try {
+          // Lấy course trong Moodle
+          const moodleCourse = await moodleService.getCourseByShortname(
+            course.MaLopHocPhan
+          );
+          console.log(`Khóa học ${moodleCourse?.fullname || course.MaLopHocPhan}`);
+
+          if (!moodleCourse) {
+            syncLogger.warn(`Course not found in Moodle: ${course.MaLopHocPhan}`);
+            continue;
+          }
+
+          // Lấy danh sách đăng ký giảng viên từ HRM_NUCE database
+          const enrollments = await databaseService.getTeacherCourseEnrollmentsOne(
             course.MaLopHocPhan,
             lastSync
           );

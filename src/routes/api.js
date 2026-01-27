@@ -121,6 +121,19 @@ router.post('/sync/enrollments-teachers', asyncHandler(async (req, res) => {
 }));
 
 
+// Đồng bộ đăng ký giảng viên vào khóa học từ SQL Server sang Moodle
+// Done
+router.post('/sync/enrollments-teachers-one', asyncHandler(async (req, res) => {
+  const result = await syncToMoodleService.syncTeacherEnrollmentsToMoodleOne();
+  res.json({
+    success: true,
+    message: 'Teacher enrollment sync completed',
+    data: result
+  });
+}));
+
+
+
 // Đồng bộ tất cả dữ liệu từ SQL Server sang Moodle
 //Done
 router.post('/sync/all-to-moodle', asyncHandler(async (req, res) => {

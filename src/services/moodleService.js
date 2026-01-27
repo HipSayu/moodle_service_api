@@ -90,10 +90,10 @@ class MoodleService {
         'users[0][firstname]': userData.first_name,
         'users[0][lastname]': userData.last_name,
         // 'users[0][email]': userData.email,
-        'users[0][auth]': 'manual',
-        'users[0][password]': userData.password,
+        // 'users[0][auth]': 'manual',
+        // 'users[0][password]': userData.password,
         // 'users[0][idnumber]': userData.idnumber,
-        'users[0][city]': userData.city || "",
+        // 'users[0][city]': userData.city || "",
       };
 
       await this.callWebService('core_user_update_users', updateData);

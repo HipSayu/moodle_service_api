@@ -250,8 +250,6 @@ class DatabaseService {
     }
   }
 
-
-
   async getOneStudentCourseEnrollments(courseId = null) {
     try {
       let query = `
@@ -298,6 +296,39 @@ class DatabaseService {
        INNER JOIN dbo.TKB_LopHoc lhoc WITH (NOLOCK) ON lhoc.Id = mh.IDLopHoc
        INNER JOIN dbo.DM_Dot d WITH (NOLOCK) ON lhoc.IDDot = d.Id
        WHERE lhoc.TenLopHoc LIKE '%67%' AND d.TenDot LIKE '%HK2 2025-2026%'
+      `;
+      const parameters = {};
+      if (courseId) {
+        query += " AND lhp.MaLopHocPhan = @courseId";
+        parameters.courseId = courseId;
+      }
+      if (lastSyncDate) {
+        query += " AND gv.NgayCapNhat > @lastSyncDate";
+        parameters.lastSyncDate = lastSyncDate;
+      }
+      const result = await this.executeQuery(query, parameters);
+      return result.recordset;
+    } catch (error) {
+      logger.error("Error getting teacher course enrollments:", error);
+      throw error;
+    }
+  }
+
+  async getTeacherCourseEnrollmentsOne(courseId = null, lastSyncDate = null) {
+    try {
+      let query = `
+             SELECT DISTINCT lhp.MaLopHocPhan, lhoc.TenLopHoc, mh.TenMonHoc,
+      gv.MaGiangVien, gv.HoDem + ' ' + gv.Ten AS HoTenGiangVien, gv.Email, lhgv.IsTroGiang
+       FROM dbo.TKB_LopHocPhan lhp WITH (NOLOCK)
+       INNER JOIN dbo.TKB_DanhSachLopXepLichHoc ds WITH (NOLOCK) ON ds.IDLopHocPhan = lhp.Id
+       INNER JOIN dbo.TKB_LopXepLichHoc lxl WITH (NOLOCK) ON lxl.Id = ds.IDLopXepLichHoc
+       INNER JOIN dbo.TKB_LichHoc lh WITH (NOLOCK) ON lh.IDLopXepLichHoc = lxl.Id
+       INNER JOIN dbo.TKB_LichHocGiangVien lhgv WITH (NOLOCK) ON lhgv.IDLichHoc = lh.Id
+       INNER JOIN dbo.DM_GiangVien gv WITH (NOLOCK) ON gv.Id = lhgv.IDGiangVien
+       INNER JOIN dbo.TKB_MonHoc mh WITH (NOLOCK) ON mh.Id = lhp.IDMonHoc
+       INNER JOIN dbo.TKB_LopHoc lhoc WITH (NOLOCK) ON lhoc.Id = mh.IDLopHoc
+       INNER JOIN dbo.DM_Dot d WITH (NOLOCK) ON lhoc.IDDot = d.Id
+       WHERE d.TenDot LIKE '%HK2 2025-2026%' AND gv.MaGiangVien LIKE '%1017%'
       `;
       const parameters = {};
       if (courseId) {
