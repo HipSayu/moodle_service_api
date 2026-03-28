@@ -461,7 +461,7 @@ WHERE (dk.IDTrangThaiDangKy IN (1, 2, 3)) AND lh.TenLopHoc LIKE '66CS2'
         gv.HoDem + ' ' + gv.Ten AS GiangVienGiangDay,
         COALESCE(tbm.TenBoMon, 'Chưa gán bộ môn') AS BoMonQuanLyGiangVien,
         COALESCE(k.TenKhoa, 'Chưa gán khoa') AS KhoaQuanLyGiangVien,
-        dtk.SiSo AS SiSoLopHocPhan,
+        dbo.Fn_HUCEGetSiSoDangKy(b.Id, NULL) AS SiSoLopHocPhan,
         a.DaKhoaDiemKetThuc AS TrangThaiKhoaDiemKetThuc,
         CONVERT(varchar(23), a.NgayTao, 121) AS NgayKhoaDiemKetThucLanDau,
         c.HoDem + ' ' + c.Ten AS UserKhoaDiemKetThuc,
@@ -473,6 +473,7 @@ WHERE (dk.IDTrangThaiDangKy IN (1, 2, 3)) AND lh.TenLopHoc LIKE '66CS2'
       JOIN View_TKB_LopHocPhan b ON a.IDLopHocPhan = b.Id
       JOIN dbo.View_TKB_LopHocPhanGiangVien lhpvg WITH (NOLOCK) 
         ON lhpvg.MaLopHocPhan = b.MaLopHocPhan
+        AND lhpvg.IDDot = 298
       JOIN dbo.DM_GiangVien gv WITH (NOLOCK) 
         ON gv.Id = lhpvg.IDGiangVien
       JOIN HRM_NUCE.dbo.NS_NhanSu c ON a.NguoiTao = c.IDNhanSu
@@ -484,7 +485,7 @@ WHERE (dk.IDTrangThaiDangKy IN (1, 2, 3)) AND lh.TenLopHoc LIKE '66CS2'
       LEFT JOIN View_LichThiTrongDanhSachThiKetThuc dtk ON dtk.MaLopHocPhan = b.MaLopHocPhan AND dtk.IDDot = 298
       WHERE 
         b.IDDot = 298
-         AND DATEDIFF(day, lt.NgayThi, a.NgayTao) > 14
+         AND DATEDIFF(day, lt.NgayThi, a.NgayTao) >= 14
     )
     SELECT *
     FROM CTE
@@ -592,7 +593,8 @@ WHERE (dk.IDTrangThaiDangKy IN (1, 2, 3)) AND lh.TenLopHoc LIKE '66CS2'
               maList: grouping?.maList,
               tenList: grouping?.tenList,
               teachers: new Set(),
-              subjects: new Set()
+              subjects: new Set(),
+              classSizes: new Set()
             });
           }
 
@@ -603,6 +605,9 @@ WHERE (dk.IDTrangThaiDangKy IN (1, 2, 3)) AND lh.TenLopHoc LIKE '66CS2'
           if (row.TenMonHoc) {
             entry.subjects.add(row.TenMonHoc);
           }
+          if (row.SiSoLopHocPhan !== undefined && row.SiSoLopHocPhan !== null) {
+            entry.classSizes.add(row.SiSoLopHocPhan);
+          }
         }
 
         return Array.from(grouped.values()).map((entry) => ({
@@ -610,7 +615,8 @@ WHERE (dk.IDTrangThaiDangKy IN (1, 2, 3)) AND lh.TenLopHoc LIKE '66CS2'
           MaLopHocPhan: entry.maList || entry.baseRow.MaLopHocPhan,
           LopHocPhan: entry.tenList || entry.baseRow.LopHocPhan,
           GiangVienGiangDay: Array.from(entry.teachers).join(", ") || entry.baseRow.GiangVienGiangDay,
-          TenMonHoc: Array.from(entry.subjects).join(", ") || entry.baseRow.TenMonHoc
+          TenMonHoc: Array.from(entry.subjects).join(", ") || entry.baseRow.TenMonHoc,
+          SiSoLopHocPhan: Array.from(entry.classSizes).join(", ") || entry.baseRow.SiSoLopHocPhan
         }));
       })();
 
