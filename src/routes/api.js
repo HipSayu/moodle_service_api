@@ -270,6 +270,53 @@ router.get('/data/courses', asyncHandler(async (req, res) => {
   });
 }));
 
+router.get('/reports/locked-grades', asyncHandler(async (req, res) => {
+  const { download } = req.query;
+  const report = await databaseService.exportLockedGradeAuditReport();
+
+  if (download === 'true') {
+    return res.download(report.filePath, (err) => {
+      if (err) {
+        return res.status(500).json({
+          success: false,
+          message: 'Failed to download report',
+          error: err.message
+        });
+      }
+    });
+  }
+
+  res.json({
+    success: true,
+    message: 'Locked grade audit report generated',
+    data: report
+  });
+}));
+
+// Báo cáo khóa điểm (phiên bản mới - không ảnh hưởng API cũ)
+router.get('/reports/locked-grades-v2', asyncHandler(async (req, res) => {
+  const { download } = req.query;
+  const report = await databaseService.exportLockedGradeAuditReport();
+
+  if (download === 'true') {
+    return res.download(report.filePath, (err) => {
+      if (err) {
+        return res.status(500).json({
+          success: false,
+          message: 'Failed to download report',
+          error: err.message
+        });
+      }
+    });
+  }
+
+  res.json({
+    success: true,
+    message: 'Locked grade audit report v2 generated',
+    data: report
+  });
+}));
+
 // Tạo bài kiểm tra cuối kỳ cho tất cả khóa học trong Moodle
 router.post('/sync/create-final-quiz', asyncHandler(async (req, res) => {
   const result = await syncToMoodleService.createFinalQuizForAllCourses();
