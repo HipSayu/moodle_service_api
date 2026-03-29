@@ -293,6 +293,76 @@ router.get('/reports/locked-grades', asyncHandler(async (req, res) => {
   });
 }));
 
+router.get('/reports/locked-grades-nomerge', asyncHandler(async (req, res) => {
+  const { download } = req.query;
+  const report = await databaseService.exportLockedGradeAuditReportNoMerge();
+
+  if (download === 'true') {
+    return res.download(report.filePath, (err) => {
+      if (err) {
+        return res.status(500).json({
+          success: false,
+          message: 'Failed to download report (no merge)',
+          error: err.message
+        });
+      }
+    });
+  }
+
+  res.json({
+    success: true,
+    message: 'Locked grade audit report (no merge) generated',
+    data: report
+  });
+}));
+
+// Báo cáo khóa điểm (phiên bản nộp muộn, không lọc theo ngày) 
+router.get('/reports/locked-grades-late', asyncHandler(async (req, res) => {
+  const { download } = req.query;
+  const report = await databaseService.exportLockedGradeAuditReportLate();
+
+  if (download === 'true') {
+    return res.download(report.filePath, (err) => {
+      if (err) {
+        return res.status(500).json({
+          success: false,
+          message: 'Failed to download report',
+          error: err.message
+        });
+      }
+    });
+  }
+
+  res.json({
+    success: true,
+    message: 'Locked grade audit late report generated',
+    data: report
+  });
+}));
+
+router.get('/reports/locked-grades-late-nomerge', asyncHandler(async (req, res) => {
+  const { download } = req.query;
+  const report = await databaseService.exportLockedGradeAuditReportLateNoMerge();
+
+  if (download === 'true') {
+    return res.download(report.filePath, (err) => {
+      if (err) {
+        return res.status(500).json({
+          success: false,
+          message: 'Failed to download late no-merge report',
+          error: err.message
+        });
+      }
+    });
+  }
+
+  res.json({
+    success: true,
+    message: 'Locked grade audit late report (no merge) generated',
+    data: report
+  });
+}));
+
 // Báo cáo khóa điểm (phiên bản mới - không ảnh hưởng API cũ)
 router.get('/reports/locked-grades-v2', asyncHandler(async (req, res) => {
   const { download } = req.query;

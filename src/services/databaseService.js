@@ -485,7 +485,10 @@ WHERE (dk.IDTrangThaiDangKy IN (1, 2, 3)) AND lh.TenLopHoc LIKE '66CS2'
       LEFT JOIN View_LichThiTrongDanhSachThiKetThuc dtk ON dtk.MaLopHocPhan = b.MaLopHocPhan AND dtk.IDDot = 298
       WHERE 
         b.IDDot = 298
-         AND DATEDIFF(day, lt.NgayThi, a.NgayTao) >= 14
+         AND (
+           lt.NgayThi IS NULL
+           OR DATEDIFF(day, lt.NgayThi, a.NgayTao) >= 14
+         )
     )
     SELECT *
     FROM CTE
@@ -664,6 +667,540 @@ WHERE (dk.IDTrangThaiDangKy IN (1, 2, 3)) AND lh.TenLopHoc LIKE '66CS2'
       };
     } catch (error) {
       logger.error("Error exporting locked grade audit report:", error);
+      throw error;
+    }
+  }
+
+  async exportLockedGradeAuditReportNoMerge() {
+    try {
+        const query = `WITH LichThi AS (
+      SELECT
+        d.MaLopHocPhan,
+        d.NgayThi,
+        CONVERT(varchar(23), d.NgayThi, 121) AS NgayThiFormatted,
+        ROW_NUMBER() OVER (
+          PARTITION BY d.MaLopHocPhan
+          ORDER BY d.NgayThi DESC
+        ) AS rn
+      FROM View_LichThiTrongDanhSachThiKetThuc d
+      WHERE d.IDDot = 298
+    ),
+    CTE AS (
+      SELECT 
+        b.MaLopHocPhan,
+        b.TenMonHoc,
+        b.TenLopHoc AS LopHocPhan,
+        CONVERT(varchar(23), b.NgayKetThucTienDo, 121) AS NgayKetThucHocPhan,
+        lt.NgayThi,
+        lt.NgayThiFormatted AS NgayThiDay,
+        gv.HoDem + ' ' + gv.Ten AS GiangVienGiangDay,
+        COALESCE(tbm.TenBoMon, 'Chưa gán bộ môn') AS BoMonQuanLyGiangVien,
+        COALESCE(k.TenKhoa, 'Chưa gán khoa') AS KhoaQuanLyGiangVien,
+        dbo.Fn_HUCEGetSiSoDangKy(b.Id, NULL) AS SiSoLopHocPhan,
+        a.DaKhoaDiemKetThuc AS TrangThaiKhoaDiemKetThuc,
+        CONVERT(varchar(23), a.NgayTao, 121) AS NgayKhoaDiemKetThucLanDau,
+        c.HoDem + ' ' + c.Ten AS UserKhoaDiemKetThuc,
+        ROW_NUMBER() OVER (
+          PARTITION BY b.MaLopHocPhan
+          ORDER BY a.NgayCapNhat DESC
+        ) AS rn
+      FROM DT_KhoaDiem a
+      JOIN View_TKB_LopHocPhan b ON a.IDLopHocPhan = b.Id
+      JOIN dbo.View_TKB_LopHocPhanGiangVien lhpvg WITH (NOLOCK) 
+        ON lhpvg.MaLopHocPhan = b.MaLopHocPhan
+        AND lhpvg.IDDot = 298
+      JOIN dbo.DM_GiangVien gv WITH (NOLOCK) 
+        ON gv.Id = lhpvg.IDGiangVien
+      JOIN HRM_NUCE.dbo.NS_NhanSu c ON a.NguoiTao = c.IDNhanSu
+      LEFT JOIN View_HRM_ACL_ToBoMonQuanLy tbm 
+        ON tbm.IDToBoMon = gv.IDToBoMonTmp
+      LEFT JOIN View_Khoa k 
+        ON k.Id = gv.IDKhoa
+      LEFT JOIN LichThi lt ON lt.MaLopHocPhan = b.MaLopHocPhan AND lt.rn = 1
+      LEFT JOIN View_LichThiTrongDanhSachThiKetThuc dtk ON dtk.MaLopHocPhan = b.MaLopHocPhan AND dtk.IDDot = 298
+      WHERE 
+        b.IDDot = 298
+         AND (
+           lt.NgayThi IS NULL
+           OR DATEDIFF(day, lt.NgayThi, a.NgayTao) >= 14
+         )
+    )
+    SELECT *
+    FROM CTE
+    WHERE rn = 1;`;
+
+      const result = await this.executeQuery(query);
+      const records = result.recordset || [];
+
+      // Move NopMuon to the end of each row for clearer Excel ordering
+      const orderedRecords = records.map((row) => {
+        if (!row || !Object.prototype.hasOwnProperty.call(row, "NopMuon")) {
+          return row;
+        }
+
+        const { NopMuon, ...rest } = row;
+        return { ...rest, NopMuon };
+      });
+
+      const reportsDir = path.join(__dirname, "../../logs/reports");
+      if (!fs.existsSync(reportsDir)) {
+        fs.mkdirSync(reportsDir, { recursive: true });
+      }
+
+      const timestamp = new Date()
+        .toISOString()
+        .replace(/[:.]/g, "-")
+        .slice(0, -5);
+      const filePath = path.join(
+        reportsDir,
+        `locked_grade_audit_nomerge_${timestamp}.xlsx`
+      );
+
+      const workbook = new ExcelJS.Workbook();
+      const sheet = workbook.addWorksheet("ReportNoMerge");
+
+      const columns = records.length > 0
+        ? Object.keys(records[0]).map((key) => ({
+            header: key,
+            key,
+            width: Math.max(String(key).length + 2, 18)
+          }))
+        : [];
+
+      sheet.columns = [{ header: "No", key: "__idx", width: 6 }, ...columns];
+
+      records.forEach((row, index) => {
+        sheet.addRow({ __idx: index + 1, ...row });
+      });
+
+      if (sheet.rowCount === 0) {
+        sheet.addRow({ __idx: 0 });
+      }
+
+      await workbook.xlsx.writeFile(filePath);
+      logger.info(`Locked grade audit no-merge report saved to ${filePath}`);
+
+      return {
+        filePath,
+        count: records.length
+      };
+    } catch (error) {
+      logger.error("Error exporting locked grade audit report (no merge):", error);
+      throw error;
+    }
+  }
+
+  async exportLockedGradeAuditReportLate() {
+    try {
+        const query = `WITH LichThi AS (
+      SELECT
+        d.MaLopHocPhan,
+        d.NgayThi,
+        CONVERT(varchar(23), d.NgayThi, 121) AS NgayThiFormatted,
+        ROW_NUMBER() OVER (
+          PARTITION BY d.MaLopHocPhan
+          ORDER BY d.NgayThi DESC
+        ) AS rn
+      FROM View_LichThiTrongDanhSachThiKetThuc d
+      WHERE d.IDDot = 298
+    ),
+    CTE AS (
+      SELECT 
+        b.MaLopHocPhan,
+        b.TenMonHoc,
+        b.TenLopHoc AS LopHocPhan,
+        CONVERT(varchar(23), b.NgayKetThucTienDo, 121) AS NgayKetThucHocPhan,
+        lt.NgayThi,
+        lt.NgayThiFormatted AS NgayThiDay,
+        gv.HoDem + ' ' + gv.Ten AS GiangVienGiangDay,
+        COALESCE(tbm.TenBoMon, 'Chưa gán bộ môn') AS BoMonQuanLyGiangVien,
+        COALESCE(k.TenKhoa, 'Chưa gán khoa') AS KhoaQuanLyGiangVien,
+        dbo.Fn_HUCEGetSiSoDangKy(b.Id, NULL) AS SiSoLopHocPhan,
+        CASE 
+          WHEN lt.NgayThi IS NULL THEN 1
+          WHEN DATEDIFF(day, lt.NgayThi, a.NgayTao) >= 14 THEN 1
+          ELSE 0
+        END AS NopMuon,
+        a.DaKhoaDiemKetThuc AS TrangThaiKhoaDiemKetThuc,
+        CONVERT(varchar(23), a.NgayTao, 121) AS NgayKhoaDiemKetThucLanDau,
+        c.HoDem + ' ' + c.Ten AS UserKhoaDiemKetThuc,
+        CONVERT(varchar(23), a.NgayCapNhat, 121) AS NgayCapNhat,
+        CONVERT(varchar(23), a.NgayTao, 121) AS NgayTao,
+        ROW_NUMBER() OVER (
+          PARTITION BY b.MaLopHocPhan
+          ORDER BY a.NgayCapNhat DESC
+        ) AS rn
+      FROM DT_KhoaDiem a
+      JOIN View_TKB_LopHocPhan b ON a.IDLopHocPhan = b.Id
+      JOIN dbo.View_TKB_LopHocPhanGiangVien lhpvg WITH (NOLOCK) 
+        ON lhpvg.MaLopHocPhan = b.MaLopHocPhan
+        AND lhpvg.IDDot = 298
+      JOIN dbo.DM_GiangVien gv WITH (NOLOCK) 
+        ON gv.Id = lhpvg.IDGiangVien
+      JOIN HRM_NUCE.dbo.NS_NhanSu c ON a.NguoiTao = c.IDNhanSu
+      LEFT JOIN View_HRM_ACL_ToBoMonQuanLy tbm 
+        ON tbm.IDToBoMon = gv.IDToBoMonTmp
+      LEFT JOIN View_Khoa k 
+        ON k.Id = gv.IDKhoa
+      LEFT JOIN LichThi lt ON lt.MaLopHocPhan = b.MaLopHocPhan AND lt.rn = 1
+      LEFT JOIN View_LichThiTrongDanhSachThiKetThuc dtk ON dtk.MaLopHocPhan = b.MaLopHocPhan AND dtk.IDDot = 298
+      WHERE 
+        b.IDDot = 298
+    )
+    SELECT *
+    FROM CTE
+    WHERE rn = 1;`;
+
+      const result = await this.executeQuery(query);
+      const records = result.recordset || [];
+
+      // Build merged-class mapping by reproducing the #tmp3 logic inline (no temp table dependency)
+      const mappingQuery = `
+        WITH tmp2 AS (
+          SELECT a.MaMonHoc,
+                 a.MaGiangVien,
+                 a.IDToBoMon,
+                 a.TenGiangVien,
+                 a.MaLopHocPhan,
+                 a.TenLopHoc,
+                 a.NgayBatDau,
+                 a.TuTiet,
+                 a.DenTiet,
+                 a.IDPhong,
+                 a.IsTamNgung,
+                 a.IDDot,
+                 b.IDQuyUocCotDiem
+          FROM [EDU_NUCE].[dbo].View_TKB_LichHocGiangVien a
+          LEFT JOIN [EDU_NUCE].[dbo].View_TKB_Lophocphan b
+            ON a.MaLopHocPhan = b.MaLopHocPhan AND a.IDDot = b.IDDot
+          WHERE a.IDDot = 298 AND a.IsHocBu != 1
+        ),
+        LichTrungLap AS (
+          SELECT 
+            MaMonHoc,
+            MaGiangVien,
+            IDToBoMon,
+            TenGiangVien,
+            STRING_AGG(MaLopHocPhan, ',') WITHIN GROUP (ORDER BY MaLopHocPhan) AS DanhSachMaLopHocPhan,
+            STRING_AGG(TenLopHoc, ',') WITHIN GROUP (ORDER BY MaLopHocPhan) AS DanhSachTenLopHoc
+          FROM tmp2
+          WHERE IDDot = 298 AND IsTamNgung = 0
+          GROUP BY 
+            MaMonHoc,
+            MaGiangVien,
+            IDToBoMon,
+            TenGiangVien,
+            NgayBatDau,
+            TuTiet,
+            DenTiet,
+            IDPhong,
+            IDQuyUocCotDiem
+          HAVING COUNT(*) > 1
+        )
+        SELECT DanhSachMaLopHocPhan, DanhSachTenLopHoc
+        FROM (
+          SELECT *, ROW_NUMBER() OVER (
+            PARTITION BY MaGiangVien, MaMonHoc, DanhSachMaLopHocPhan, DanhSachTenLopHoc
+            ORDER BY MaMonHoc
+          ) AS rn
+          FROM LichTrungLap
+        ) sub
+        WHERE rn = 1;
+      `;
+
+      const mappingResult = await this.executeQuery(mappingQuery);
+
+      const classMergeMap = (() => {
+        if (!mappingResult || !mappingResult.recordset) return null;
+
+        const map = new Map();
+        mappingResult.recordset.forEach((row) => {
+          const maList = (row.DanhSachMaLopHocPhan || "")
+            .toString()
+            .split(",")
+            .map((v) => v.trim())
+            .filter(Boolean)
+            .join(",");
+          const tenList = (row.DanhSachTenLopHoc || "")
+            .toString()
+            .split(",")
+            .map((v) => v.trim())
+            .filter(Boolean)
+            .join(",");
+
+          if (!maList) return;
+
+          maList.split(",").forEach((ma) => {
+            map.set(ma, { maList, tenList });
+          });
+        });
+
+        return map.size > 0 ? map : null;
+      })();
+
+      const mergedRecords = (() => {
+        if (!classMergeMap || classMergeMap.size === 0) return records;
+
+        const grouped = new Map();
+
+        for (const row of records) {
+          const grouping = classMergeMap.get(row.MaLopHocPhan);
+          const groupKey = grouping ? grouping.maList : row.MaLopHocPhan;
+
+          if (!grouped.has(groupKey)) {
+            grouped.set(groupKey, {
+              baseRow: { ...row },
+              maList: grouping?.maList,
+              tenList: grouping?.tenList,
+              teachers: new Set(),
+              subjects: new Set(),
+              classSizes: new Set(),
+              lateFlags: new Set()
+            });
+          }
+
+          const entry = grouped.get(groupKey);
+          if (row.GiangVienGiangDay) {
+            entry.teachers.add(row.GiangVienGiangDay);
+          }
+          if (row.TenMonHoc) {
+            entry.subjects.add(row.TenMonHoc);
+          }
+          if (row.SiSoLopHocPhan !== undefined && row.SiSoLopHocPhan !== null) {
+            entry.classSizes.add(row.SiSoLopHocPhan);
+          }
+          if (row.NopMuon !== undefined && row.NopMuon !== null) {
+            entry.lateFlags.add(row.NopMuon ? 1 : 0);
+          }
+        }
+
+        return Array.from(grouped.values()).map((entry) => {
+          const base = { ...entry.baseRow };
+          delete base.NopMuon;
+
+          return {
+            ...base,
+            MaLopHocPhan: entry.maList || entry.baseRow.MaLopHocPhan,
+            LopHocPhan: entry.tenList || entry.baseRow.LopHocPhan,
+            GiangVienGiangDay: Array.from(entry.teachers).join(", ") || entry.baseRow.GiangVienGiangDay,
+            TenMonHoc: Array.from(entry.subjects).join(", ") || entry.baseRow.TenMonHoc,
+            SiSoLopHocPhan: Array.from(entry.classSizes).join(", ") || entry.baseRow.SiSoLopHocPhan,
+            NopMuon: entry.lateFlags.has(1)
+          };
+        });
+      })();
+
+      const reportsDir = path.join(__dirname, "../../logs/reports");
+      if (!fs.existsSync(reportsDir)) {
+        fs.mkdirSync(reportsDir, { recursive: true });
+      }
+
+      const timestamp = new Date()
+        .toISOString()
+        .replace(/[:.]/g, "-")
+        .slice(0, -5);
+      const filePath = path.join(
+        reportsDir,
+        `locked_grade_audit_late_${timestamp}.xlsx`
+      );
+
+      const workbook = new ExcelJS.Workbook();
+      const sheet = workbook.addWorksheet("ReportLate");
+
+      const columns = mergedRecords.length > 0
+        ? Object.keys(mergedRecords[0]).map((key) => ({
+            header: key,
+            key,
+            width: Math.max(String(key).length + 2, 18)
+          }))
+        : [];
+
+      sheet.columns = [{ header: "No", key: "__idx", width: 6 }, ...columns];
+
+      mergedRecords.forEach((row, index) => {
+        sheet.addRow({ __idx: index + 1, ...row });
+      });
+
+      if (sheet.rowCount === 0) {
+        sheet.addRow({ __idx: 0 });
+      }
+
+      await workbook.xlsx.writeFile(filePath);
+      logger.info(`Locked grade audit late report saved to ${filePath}`);
+
+      return {
+        filePath,
+        count: mergedRecords.length
+      };
+    } catch (error) {
+      logger.error("Error exporting locked grade audit late report:", error);
+      throw error;
+    }
+  }
+
+  async exportLockedGradeAuditReportLateNoMerge() {
+    try {
+        const query = `WITH LichThi AS (
+      SELECT
+        d.IDLopHocPhan,
+        d.MaLopHocPhan,
+        d.NgayThi,
+        CONVERT(varchar(23), d.NgayThi, 121) AS NgayThiFormatted,
+        ROW_NUMBER() OVER (
+          PARTITION BY d.MaLopHocPhan
+          ORDER BY d.NgayThi DESC
+        ) AS rn
+      FROM View_LichThiTrongDanhSachThiKetThuc d
+      WHERE d.IDDot = 298
+    ),
+
+    CTE AS (
+      SELECT 
+        b.MaLopHocPhan,
+
+        b.TenMonHoc,
+
+        b.TenLopHoc AS LopHocPhan,
+
+        CONVERT(varchar(23), b.NgayKetThucTienDo, 121)
+        AS NgayKetThucHocPhan,
+
+        lt.NgayThi,
+
+        lt.NgayThiFormatted AS NgayThiDay,
+
+        COALESCE(teacherAgg.GiangVienGiangDay, 'Chưa có giảng viên')
+        AS GiangVienGiangDay,
+
+        COALESCE(tbm.TenBoMon, 'Chưa gán bộ môn')
+        AS BoMonQuanLyGiangVien,
+
+        COALESCE(k.TenKhoa, 'Chưa gán khoa')
+        AS KhoaQuanLyGiangVien,
+
+        dbo.Fn_HUCEGetSiSoDangKy(b.Id, NULL)
+        AS SiSoLopHocPhan,
+
+        CASE 
+          WHEN lt.NgayThi IS NULL THEN 1
+          WHEN DATEDIFF(day, lt.NgayThi, a.NgayTao) >= 14 THEN 1
+          ELSE 0
+        END AS NopMuon,
+
+        a.DaKhoaDiemKetThuc
+        AS TrangThaiKhoaDiemKetThuc,
+
+        CONVERT(varchar(23), a.NgayTao, 121)
+        AS NgayKhoaDiemKetThucLanDau,
+
+        ns.HoDem + ' ' + ns.Ten
+        AS UserKhoaDiemKetThuc,
+
+        CONVERT(varchar(23), a.NgayCapNhat, 121)
+        AS NgayCapNhat,
+
+        CONVERT(varchar(23), a.NgayTao, 121)
+        AS NgayTao,
+
+        ROW_NUMBER() OVER (
+          PARTITION BY a.IDLopHocPhan
+          ORDER BY a.NgayCapNhat DESC
+        ) AS rn
+
+    FROM DT_KhoaDiem a
+
+    JOIN View_TKB_LopHocPhan b
+        ON a.IDLopHocPhan = b.Id
+
+    LEFT JOIN LichThi lt
+        ON lt.IDLopHocPhan = a.IDLopHocPhan
+        AND lt.rn = 1
+
+    OUTER APPLY (
+      SELECT
+        STRING_AGG(gv.HoDem + ' ' + gv.Ten, ', ') WITHIN GROUP (ORDER BY gv.HoDem, gv.Ten) AS GiangVienGiangDay,
+        MIN(gv.IDToBoMonTmp) AS IDToBoMonTmp,
+        MIN(gv.IDKhoa) AS IDKhoa
+      FROM dbo.View_TKB_LopHocPhanGiangVien lhpvg WITH (NOLOCK)
+      JOIN dbo.DM_GiangVien gv WITH (NOLOCK)
+        ON gv.Id = lhpvg.IDGiangVien
+      WHERE lhpvg.MaLopHocPhan = b.MaLopHocPhan
+        AND lhpvg.IDDot = 298
+    ) AS teacherAgg
+
+    LEFT JOIN HRM_NUCE.dbo.NS_NhanSu ns
+        ON ns.IDNhanSu = a.NguoiTao
+
+    LEFT JOIN View_HRM_ACL_ToBoMonQuanLy tbm
+      ON tbm.IDToBoMon = teacherAgg.IDToBoMonTmp
+
+    LEFT JOIN View_Khoa k
+      ON k.Id = teacherAgg.IDKhoa
+
+    WHERE b.IDDot = 298
+)
+
+SELECT *
+FROM CTE
+WHERE rn = 1;`;
+
+      const result = await this.executeQuery(query);
+      const records = result.recordset || [];
+
+      // Move NopMuon to the end of each row so the column is last in Excel
+      const orderedRecords = records.map((row) => {
+        if (!row || !Object.prototype.hasOwnProperty.call(row, "NopMuon")) {
+          return row;
+        }
+
+        const { NopMuon, ...rest } = row;
+        return { ...rest, NopMuon };
+      });
+
+      const reportsDir = path.join(__dirname, "../../logs/reports");
+      if (!fs.existsSync(reportsDir)) {
+        fs.mkdirSync(reportsDir, { recursive: true });
+      }
+
+      const timestamp = new Date()
+        .toISOString()
+        .replace(/[:.]/g, "-")
+        .slice(0, -5);
+      const filePath = path.join(
+        reportsDir,
+        `locked_grade_audit_late_nomerge_${timestamp}.xlsx`
+      );
+
+      const workbook = new ExcelJS.Workbook();
+      const sheet = workbook.addWorksheet("ReportLateNoMerge");
+
+      const columns = orderedRecords.length > 0
+        ? Object.keys(orderedRecords[0]).map((key) => ({
+            header: key,
+            key,
+            width: Math.max(String(key).length + 2, 18)
+          }))
+        : [];
+
+      sheet.columns = [{ header: "No", key: "__idx", width: 6 }, ...columns];
+
+      orderedRecords.forEach((row, index) => {
+        sheet.addRow({ __idx: index + 1, ...row });
+      });
+
+      if (sheet.rowCount === 0) {
+        sheet.addRow({ __idx: 0 });
+      }
+
+      await workbook.xlsx.writeFile(filePath);
+      logger.info(`Locked grade audit late no-merge report saved to ${filePath}`);
+
+      return {
+        filePath,
+        count: orderedRecords.length
+      };
+    } catch (error) {
+      logger.error("Error exporting locked grade audit late report (no merge):", error);
       throw error;
     }
   }
