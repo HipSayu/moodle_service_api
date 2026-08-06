@@ -105,8 +105,7 @@ class DatabaseService {
                     INNER JOIN dbo.TKB_MonHoc mh WITH (NOLOCK) ON mh.Id = lhp.IDMonHoc
                     INNER JOIN dbo.TKB_LopHoc lhoc WITH (NOLOCK) ON lhoc.Id = mh.IDLopHoc
                     INNER JOIN dbo.DM_Dot d WITH (NOLOCK) ON lhoc.IDDot = d.Id
-                    WHERE sv.MaSinhVien LIKE '017731' AND d.TenDot LIKE '%HK2 2025-2026%'
-                    
+                    WHERE sv.MaSinhVien LIKE '1653965' AND d.TenDot LIKE '%HK1 2026-2027%'
                   `;
       const parameters = {};
       if (lastSyncDate) {
@@ -168,6 +167,15 @@ class DatabaseService {
   // DONE
   async getCourses(lastSyncDate = null) {
     try {
+      let query_old = `
+        SELECT mh.TenMonHoc,lhoc.TenLopHoc, d.TenDot, lhp.Id AS IDLopHocPhan, mh.IDToBoMon, lhoc.NgayCapNhat, mh.SoTietThucHanh, mh.SoTietLyThuyet,
+        lhp.MaLopHocPhan
+        FROM dbo.TKB_MonHoc AS mh
+        INNER JOIN dbo.TKB_LopHoc as lhoc ON lhoc.Id = mh.IDLopHoc
+        INNER JOIN dbo.DM_Dot d WITH (NOLOCK) ON lhoc.IDDot = d.Id
+        INNER JOIN  dbo.TKB_LopHocPhan as lhp ON lhp.IDMonHoc= mh.ID
+        WHERE lhoc.TenLopHoc LIKE '67%'  AND d.TenDot LIKE '%HK3 2025-2026%'
+`;
       let query2 = `
         SELECT mh.TenMonHoc,lhoc.TenLopHoc, d.TenDot, lhp.Id AS IDLopHocPhan, mh.IDToBoMon, lhoc.NgayCapNhat, mh.SoTietThucHanh, mh.SoTietLyThuyet,
         lhp.MaLopHocPhan
@@ -175,7 +183,7 @@ class DatabaseService {
         INNER JOIN dbo.TKB_LopHoc as lhoc ON lhoc.Id = mh.IDLopHoc
         INNER JOIN dbo.DM_Dot d WITH (NOLOCK) ON lhoc.IDDot = d.Id
         INNER JOIN  dbo.TKB_LopHocPhan as lhp ON lhp.IDMonHoc= mh.ID
-        WHERE lhoc.TenLopHoc LIKE '67%'  AND d.TenDot LIKE '%HK2 2025-2026%'
+        WHERE d.TenDot LIKE '%HK1 2026-2027%'
 `;
       const parameters = {};
       if (lastSyncDate) {
@@ -189,6 +197,36 @@ class DatabaseService {
       return result.recordset;
     } catch (error) {
       logger.error("Error getting courses:", error);
+      throw error;
+    }
+  }
+
+  // Lấy MỘT lớp học phần theo mã lớp học phần
+  // tenDot: mặc định lấy theo học kỳ đang dùng ở getCourses, truyền vào để tra học kỳ khác
+  async getOneCourse(maLopHocPhan, tenDot = null) {
+    try {
+      let query = `
+        SELECT mh.TenMonHoc, lhoc.TenLopHoc, d.TenDot, lhp.Id AS IDLopHocPhan, mh.IDToBoMon,
+        lhoc.NgayCapNhat, mh.SoTietThucHanh, mh.SoTietLyThuyet, lhp.MaLopHocPhan
+        FROM dbo.TKB_MonHoc AS mh
+        INNER JOIN dbo.TKB_LopHoc as lhoc ON lhoc.Id = mh.IDLopHoc
+        INNER JOIN dbo.DM_Dot d WITH (NOLOCK) ON lhoc.IDDot = d.Id
+        INNER JOIN dbo.TKB_LopHocPhan as lhp ON lhp.IDMonHoc = mh.ID
+        WHERE lhp.MaLopHocPhan = @maLopHocPhan
+      `;
+      const parameters = { maLopHocPhan };
+
+      if (tenDot) {
+        query += " AND d.TenDot LIKE @tenDot";
+        parameters.tenDot = `%${tenDot}%`;
+      } else {
+        query += " AND d.TenDot LIKE '%HK1 2026-2027%'";
+      }
+
+      const result = await this.executeQuery(query, parameters);
+      return result.recordset;
+    } catch (error) {
+      logger.error("Error getting one course:", error);
       throw error;
     }
   }
@@ -225,6 +263,43 @@ class DatabaseService {
     }
   }
 
+  // Lấy thông tin MỘT giảng viên theo mã giảng viên hoặc email
+  // identifier: MaGiangVien hoặc Email. Không truyền -> dùng giảng viên mặc định để test
+  async getTeachersOne(identifier = null, lastSyncDate = null) {
+    try {
+      let query = `
+        SELECT DISTINCT
+        gv.MaGiangVien AS MaNhanSu, gv.HoDem + ' ' + gv.Ten AS HoTenGiangVien, gv.Email,gv.Ten,gv.NgayCapNhat AS DateUpdateTeacher,gv.HoDem
+        FROM dbo.TKB_LopHocPhan lhp WITH (NOLOCK)
+        INNER JOIN dbo.TKB_DanhSachLopXepLichHoc ds WITH (NOLOCK) ON ds.IDLopHocPhan = lhp.Id
+        INNER JOIN dbo.TKB_LopXepLichHoc lxl WITH (NOLOCK) ON lxl.Id = ds.IDLopXepLichHoc
+        INNER JOIN dbo.TKB_LichHoc lh WITH (NOLOCK) ON lh.IDLopXepLichHoc = lxl.Id
+        INNER JOIN dbo.TKB_LichHocGiangVien lhgv WITH (NOLOCK) ON lhgv.IDLichHoc = lh.Id
+        INNER JOIN dbo.DM_GiangVien gv WITH (NOLOCK) ON gv.Id = lhgv.IDGiangVien
+        INNER JOIN dbo.TKB_MonHoc mh WITH (NOLOCK) ON mh.Id = lhp.IDMonHoc
+        INNER JOIN dbo.TKB_LopHoc lhoc WITH (NOLOCK) ON lhoc.Id = mh.IDLopHoc
+`;
+      const parameters = {};
+
+      if (identifier) {
+        query += " WHERE (gv.MaGiangVien = @identifier OR gv.Email = @identifier)";
+        parameters.identifier = identifier;
+      } else {
+        query += " WHERE gv.Email LIKE 'hoanttm@huce.edu.vn'";
+      }
+
+      if (lastSyncDate) {
+        query += " AND gv.NgayCapNhat > @lastSyncDate";
+        parameters.lastSyncDate = lastSyncDate;
+      }
+      const result = await this.executeQuery(query, parameters);
+      return result.recordset;
+    } catch (error) {
+      logger.error("Error getting one teacher:", error);
+      throw error;
+    }
+  }
+
   // Lấy danh sách đăng ký khóa học
   // DONE
   async getStudentCourseEnrollments(courseId = null) {
@@ -243,7 +318,7 @@ class DatabaseService {
           INNER JOIN dbo.TKB_MonHoc mh WITH (NOLOCK) ON mh.Id = lhp.IDMonHoc
           INNER JOIN dbo.TKB_LopHoc lhoc WITH (NOLOCK) ON lhoc.Id = mh.IDLopHoc
           INNER JOIN dbo.DM_Dot d WITH (NOLOCK) ON lhoc.IDDot = d.Id
-          WHERE dkhp.IDTrangThaiDangKy IN (1,2,3) AND lhoc.TenLopHoc LIKE '%67%' AND d.TenDot LIKE '%HK2 2025-2026%'
+          WHERE dkhp.IDTrangThaiDangKy IN (1,2,3) AND d.TenDot LIKE '%HK1 2026-2027%'
       `;
       const parameters = {};
       if (courseId) {
@@ -258,13 +333,16 @@ class DatabaseService {
     }
   }
 
-  async getOneStudentCourseEnrollments(courseId = null) {
+  // Lấy danh sách lớp học phần của MỘT sinh viên (theo mã sinh viên hoặc email)
+  // identifier: MaSinhVien hoặc Email. Không truyền -> dùng sinh viên mặc định để test
+  async getOneStudentCourseEnrollments(identifier = null) {
     try {
       let query = `
         SELECT DISTINCT
           lhp.MaLopHocPhan,
           lhoc.TenLopHoc,
           mh.TenMonHoc,
+          d.TenDot,
           sv.MaSinhVien,
           sv.HoDem + ' ' + sv.Ten AS HoTenSinhVien,
           sv.Email
@@ -274,12 +352,14 @@ class DatabaseService {
           INNER JOIN dbo.TKB_MonHoc mh WITH (NOLOCK) ON mh.Id = lhp.IDMonHoc
           INNER JOIN dbo.TKB_LopHoc lhoc WITH (NOLOCK) ON lhoc.Id = mh.IDLopHoc
           INNER JOIN dbo.DM_Dot d WITH (NOLOCK) ON lhoc.IDDot = d.Id
-          WHERE dkhp.IDTrangThaiDangKy IN (1,2,3) AND d.TenDot LIKE '%HK2 2025-2026%' AND sv.MaSinhVien = '017731'
+          WHERE dkhp.IDTrangThaiDangKy IN (1,2,3) AND d.TenDot LIKE '%HK1 2026-2027%'
       `;
       const parameters = {};
-      if (courseId) {
-        query += "AND lhp.MaLopHocPhan = @courseId";
-        parameters.courseId = courseId;
+      if (identifier) {
+        query += " AND (sv.MaSinhVien = @identifier OR sv.Email = @identifier)";
+        parameters.identifier = identifier;
+      } else {
+        query += " AND sv.MaSinhVien = '1653965'";
       }
       const result = await this.executeQuery(query, parameters);
       return result.recordset;
@@ -292,7 +372,7 @@ class DatabaseService {
   async getTeacherCourseEnrollments(courseId = null, lastSyncDate = null) {
     try {
       let query = `
-             SELECT DISTINCT lhp.MaLopHocPhan, lhoc.TenLopHoc, mh.TenMonHoc,
+             SELECT DISTINCT lhp.MaLopHocPhan, lhoc.TenLopHoc, mh.TenMonHoc, d.TenDot,
       gv.MaGiangVien, gv.HoDem + ' ' + gv.Ten AS HoTenGiangVien, gv.Email, lhgv.IsTroGiang
        FROM dbo.TKB_LopHocPhan lhp WITH (NOLOCK)
        INNER JOIN dbo.TKB_DanhSachLopXepLichHoc ds WITH (NOLOCK) ON ds.IDLopHocPhan = lhp.Id
@@ -303,7 +383,7 @@ class DatabaseService {
        INNER JOIN dbo.TKB_MonHoc mh WITH (NOLOCK) ON mh.Id = lhp.IDMonHoc
        INNER JOIN dbo.TKB_LopHoc lhoc WITH (NOLOCK) ON lhoc.Id = mh.IDLopHoc
        INNER JOIN dbo.DM_Dot d WITH (NOLOCK) ON lhoc.IDDot = d.Id
-       WHERE lhoc.TenLopHoc LIKE '%67%' AND d.TenDot LIKE '%HK2 2025-2026%'
+       WHERE   d.TenDot LIKE '%HK1 2026-2027%'
       `;
       const parameters = {};
       if (courseId) {
@@ -322,10 +402,12 @@ class DatabaseService {
     }
   }
 
-  async getTeacherCourseEnrollmentsOne(courseId = null, lastSyncDate = null) {
+  // Lấy danh sách lớp học phần của MỘT giảng viên (theo mã giảng viên hoặc email)
+  // identifier: MaGiangVien hoặc Email. Không truyền -> dùng giảng viên mặc định để test
+  async getTeacherCourseEnrollmentsOne(identifier = null, lastSyncDate = null) {
     try {
       let query = `
-             SELECT DISTINCT lhp.MaLopHocPhan, lhoc.TenLopHoc, mh.TenMonHoc,
+             SELECT DISTINCT lhp.MaLopHocPhan, lhoc.TenLopHoc, mh.TenMonHoc, d.TenDot,
       gv.MaGiangVien, gv.HoDem + ' ' + gv.Ten AS HoTenGiangVien, gv.Email, lhgv.IsTroGiang
        FROM dbo.TKB_LopHocPhan lhp WITH (NOLOCK)
        INNER JOIN dbo.TKB_DanhSachLopXepLichHoc ds WITH (NOLOCK) ON ds.IDLopHocPhan = lhp.Id
@@ -336,12 +418,14 @@ class DatabaseService {
        INNER JOIN dbo.TKB_MonHoc mh WITH (NOLOCK) ON mh.Id = lhp.IDMonHoc
        INNER JOIN dbo.TKB_LopHoc lhoc WITH (NOLOCK) ON lhoc.Id = mh.IDLopHoc
        INNER JOIN dbo.DM_Dot d WITH (NOLOCK) ON lhoc.IDDot = d.Id
-       WHERE d.TenDot LIKE '%HK2 2025-2026%' AND gv.MaGiangVien LIKE '%1017%'
+       WHERE d.TenDot LIKE '%HK1 2026-2027%'
       `;
       const parameters = {};
-      if (courseId) {
-        query += " AND lhp.MaLopHocPhan = @courseId";
-        parameters.courseId = courseId;
+      if (identifier) {
+        query += " AND (gv.MaGiangVien = @identifier OR gv.Email = @identifier)";
+        parameters.identifier = identifier;
+      } else {
+        query += " AND gv.MaGiangVien LIKE '%01025%'";
       }
       if (lastSyncDate) {
         query += " AND gv.NgayCapNhat > @lastSyncDate";
@@ -438,7 +522,7 @@ WHERE (dk.IDTrangThaiDangKy IN (1, 2, 3)) AND lh.TenLopHoc LIKE '66CS2'
 
   async exportLockedGradeAuditReport() {
     try {
-        const query = `WITH LichThi AS (
+      const query = `WITH LichThi AS (
       SELECT
         d.MaLopHocPhan,
         d.NgayThi,
@@ -597,7 +681,7 @@ WHERE (dk.IDTrangThaiDangKy IN (1, 2, 3)) AND lh.TenLopHoc LIKE '66CS2'
               tenList: grouping?.tenList,
               teachers: new Set(),
               subjects: new Set(),
-              classSizes: new Set()
+              classSizes: new Set(),
             });
           }
 
@@ -617,9 +701,14 @@ WHERE (dk.IDTrangThaiDangKy IN (1, 2, 3)) AND lh.TenLopHoc LIKE '66CS2'
           ...entry.baseRow,
           MaLopHocPhan: entry.maList || entry.baseRow.MaLopHocPhan,
           LopHocPhan: entry.tenList || entry.baseRow.LopHocPhan,
-          GiangVienGiangDay: Array.from(entry.teachers).join(", ") || entry.baseRow.GiangVienGiangDay,
-          TenMonHoc: Array.from(entry.subjects).join(", ") || entry.baseRow.TenMonHoc,
-          SiSoLopHocPhan: Array.from(entry.classSizes).join(", ") || entry.baseRow.SiSoLopHocPhan
+          GiangVienGiangDay:
+            Array.from(entry.teachers).join(", ") ||
+            entry.baseRow.GiangVienGiangDay,
+          TenMonHoc:
+            Array.from(entry.subjects).join(", ") || entry.baseRow.TenMonHoc,
+          SiSoLopHocPhan:
+            Array.from(entry.classSizes).join(", ") ||
+            entry.baseRow.SiSoLopHocPhan,
         }));
       })();
 
@@ -634,19 +723,20 @@ WHERE (dk.IDTrangThaiDangKy IN (1, 2, 3)) AND lh.TenLopHoc LIKE '66CS2'
         .slice(0, -5);
       const filePath = path.join(
         reportsDir,
-        `locked_grade_audit_${timestamp}.xlsx`
+        `locked_grade_audit_${timestamp}.xlsx`,
       );
 
       const workbook = new ExcelJS.Workbook();
       const sheet = workbook.addWorksheet("Report");
 
-      const columns = mergedRecords.length > 0
-        ? Object.keys(mergedRecords[0]).map((key) => ({
-            header: key,
-            key,
-            width: Math.max(String(key).length + 2, 18)
-          }))
-        : [];
+      const columns =
+        mergedRecords.length > 0
+          ? Object.keys(mergedRecords[0]).map((key) => ({
+              header: key,
+              key,
+              width: Math.max(String(key).length + 2, 18),
+            }))
+          : [];
 
       sheet.columns = [{ header: "No", key: "__idx", width: 6 }, ...columns];
 
@@ -663,7 +753,7 @@ WHERE (dk.IDTrangThaiDangKy IN (1, 2, 3)) AND lh.TenLopHoc LIKE '66CS2'
 
       return {
         filePath,
-        count: mergedRecords.length
+        count: mergedRecords.length,
       };
     } catch (error) {
       logger.error("Error exporting locked grade audit report:", error);
@@ -673,7 +763,7 @@ WHERE (dk.IDTrangThaiDangKy IN (1, 2, 3)) AND lh.TenLopHoc LIKE '66CS2'
 
   async exportLockedGradeAuditReportNoMerge() {
     try {
-        const query = `WITH LichThi AS (
+      const query = `WITH LichThi AS (
       SELECT
         d.MaLopHocPhan,
         d.NgayThi,
@@ -753,19 +843,20 @@ WHERE (dk.IDTrangThaiDangKy IN (1, 2, 3)) AND lh.TenLopHoc LIKE '66CS2'
         .slice(0, -5);
       const filePath = path.join(
         reportsDir,
-        `locked_grade_audit_nomerge_${timestamp}.xlsx`
+        `locked_grade_audit_nomerge_${timestamp}.xlsx`,
       );
 
       const workbook = new ExcelJS.Workbook();
       const sheet = workbook.addWorksheet("ReportNoMerge");
 
-      const columns = records.length > 0
-        ? Object.keys(records[0]).map((key) => ({
-            header: key,
-            key,
-            width: Math.max(String(key).length + 2, 18)
-          }))
-        : [];
+      const columns =
+        records.length > 0
+          ? Object.keys(records[0]).map((key) => ({
+              header: key,
+              key,
+              width: Math.max(String(key).length + 2, 18),
+            }))
+          : [];
 
       sheet.columns = [{ header: "No", key: "__idx", width: 6 }, ...columns];
 
@@ -782,17 +873,20 @@ WHERE (dk.IDTrangThaiDangKy IN (1, 2, 3)) AND lh.TenLopHoc LIKE '66CS2'
 
       return {
         filePath,
-        count: records.length
+        count: records.length,
       };
     } catch (error) {
-      logger.error("Error exporting locked grade audit report (no merge):", error);
+      logger.error(
+        "Error exporting locked grade audit report (no merge):",
+        error,
+      );
       throw error;
     }
   }
 
   async exportLockedGradeAuditReportLate() {
     try {
-        const query = `WITH LichThi AS (
+      const query = `WITH LichThi AS (
       SELECT
         d.MaLopHocPhan,
         d.NgayThi,
@@ -955,7 +1049,7 @@ WHERE (dk.IDTrangThaiDangKy IN (1, 2, 3)) AND lh.TenLopHoc LIKE '66CS2'
               teachers: new Set(),
               subjects: new Set(),
               classSizes: new Set(),
-              lateFlags: new Set()
+              lateFlags: new Set(),
             });
           }
 
@@ -982,10 +1076,15 @@ WHERE (dk.IDTrangThaiDangKy IN (1, 2, 3)) AND lh.TenLopHoc LIKE '66CS2'
             ...base,
             MaLopHocPhan: entry.maList || entry.baseRow.MaLopHocPhan,
             LopHocPhan: entry.tenList || entry.baseRow.LopHocPhan,
-            GiangVienGiangDay: Array.from(entry.teachers).join(", ") || entry.baseRow.GiangVienGiangDay,
-            TenMonHoc: Array.from(entry.subjects).join(", ") || entry.baseRow.TenMonHoc,
-            SiSoLopHocPhan: Array.from(entry.classSizes).join(", ") || entry.baseRow.SiSoLopHocPhan,
-            NopMuon: entry.lateFlags.has(1)
+            GiangVienGiangDay:
+              Array.from(entry.teachers).join(", ") ||
+              entry.baseRow.GiangVienGiangDay,
+            TenMonHoc:
+              Array.from(entry.subjects).join(", ") || entry.baseRow.TenMonHoc,
+            SiSoLopHocPhan:
+              Array.from(entry.classSizes).join(", ") ||
+              entry.baseRow.SiSoLopHocPhan,
+            NopMuon: entry.lateFlags.has(1),
           };
         });
       })();
@@ -1001,19 +1100,20 @@ WHERE (dk.IDTrangThaiDangKy IN (1, 2, 3)) AND lh.TenLopHoc LIKE '66CS2'
         .slice(0, -5);
       const filePath = path.join(
         reportsDir,
-        `locked_grade_audit_late_${timestamp}.xlsx`
+        `locked_grade_audit_late_${timestamp}.xlsx`,
       );
 
       const workbook = new ExcelJS.Workbook();
       const sheet = workbook.addWorksheet("ReportLate");
 
-      const columns = mergedRecords.length > 0
-        ? Object.keys(mergedRecords[0]).map((key) => ({
-            header: key,
-            key,
-            width: Math.max(String(key).length + 2, 18)
-          }))
-        : [];
+      const columns =
+        mergedRecords.length > 0
+          ? Object.keys(mergedRecords[0]).map((key) => ({
+              header: key,
+              key,
+              width: Math.max(String(key).length + 2, 18),
+            }))
+          : [];
 
       sheet.columns = [{ header: "No", key: "__idx", width: 6 }, ...columns];
 
@@ -1030,7 +1130,7 @@ WHERE (dk.IDTrangThaiDangKy IN (1, 2, 3)) AND lh.TenLopHoc LIKE '66CS2'
 
       return {
         filePath,
-        count: mergedRecords.length
+        count: mergedRecords.length,
       };
     } catch (error) {
       logger.error("Error exporting locked grade audit late report:", error);
@@ -1040,7 +1140,7 @@ WHERE (dk.IDTrangThaiDangKy IN (1, 2, 3)) AND lh.TenLopHoc LIKE '66CS2'
 
   async exportLockedGradeAuditReportLateNoMerge() {
     try {
-        const query = `WITH LichThi AS (
+      const query = `WITH LichThi AS (
       SELECT
         d.IDLopHocPhan,
         d.MaLopHocPhan,
@@ -1052,6 +1152,41 @@ WHERE (dk.IDTrangThaiDangKy IN (1, 2, 3)) AND lh.TenLopHoc LIKE '66CS2'
         ) AS rn
       FROM View_LichThiTrongDanhSachThiKetThuc d
       WHERE d.IDDot = 298
+    ),
+
+    SourceKD AS (
+      SELECT
+        kd.Id,
+        kd.IDLopHocPhan,
+        kd.DaKhoaDiemKetThuc,
+        kd.NgayCapNhat,
+        kd.NgayTao,
+        lhp.MaLopHocPhan,
+        lhp.MaHocPhan,
+        lhp.TenMonHoc,
+        lhp.TenLopHoc,
+        ns.HoDem + ' ' + ns.Ten AS HoTenNS,
+        ns.MaNhanSu,
+        t.NgayTao AS TrackingNgayTao,
+        DaKhoaDiemQuaTrinh_Old = CAST(ISNULL((SELECT TOP 1 x.value FROM dbo.Fn_Split((SELECT TOP 1 x.value FROM dbo.Fn_Split(t.Value,';') x WHERE x.idx = 0),':') x WHERE x.idx = 1),0) AS BIT),
+        DaKhoaDiemQuaTrinh_New = CAST(ISNULL((SELECT TOP 1 x.value FROM dbo.Fn_Split((SELECT TOP 1 x.value FROM dbo.Fn_Split(t.Value,';') x WHERE x.idx = 2),':') x WHERE x.idx = 1),0) AS BIT),
+        DaKhoaDiemKetThuc_Old = CAST(ISNULL((SELECT TOP 1 x.value FROM dbo.Fn_Split((SELECT TOP 1 x.value FROM dbo.Fn_Split(t.Value,';') x WHERE x.idx = 1),':') x WHERE x.idx = 1),0) AS BIT),
+        DaKhoaDiemKetThuc_New = CAST(ISNULL((SELECT TOP 1 x.value FROM dbo.Fn_Split((SELECT TOP 1 x.value FROM dbo.Fn_Split(t.Value,';') x WHERE x.idx = 3),':') x WHERE x.idx = 1),0) AS BIT),
+        t.Status,
+        kd.Nhom,
+        DaKhoaDiemTH_Old = CAST(ISNULL((SELECT TOP 1 x.value FROM dbo.Fn_Split((SELECT TOP 1 x.value FROM dbo.Fn_Split(t.Value,';') x WHERE x.idx = 5),':') x WHERE x.idx = 1),0) AS BIT),
+        DaKhoaDiemTH_New = CAST(ISNULL((SELECT TOP 1 x.value FROM dbo.Fn_Split((SELECT TOP 1 x.value FROM dbo.Fn_Split(t.Value,';') x WHERE x.idx = 7),':') x WHERE x.idx = 1),0) AS BIT),
+        DaKhoaDiemTL_Old = CAST(ISNULL((SELECT TOP 1 x.value FROM dbo.Fn_Split((SELECT TOP 1 x.value FROM dbo.Fn_Split(t.Value,';') x WHERE x.idx = 6),':') x WHERE x.idx = 1),0) AS BIT),
+        DaKhoaDiemTL_New = CAST(ISNULL((SELECT TOP 1 x.value FROM dbo.Fn_Split((SELECT TOP 1 x.value FROM dbo.Fn_Split(t.Value,';') x WHERE x.idx = 8),':') x WHERE x.idx = 1),0) AS BIT),
+        GhiChu = CAST((SELECT TOP 1 x.value FROM dbo.Fn_Split_Nvar((SELECT TOP 1 x.value FROM dbo.Fn_Split_Nvar(t.Value,';') x WHERE x.idx = 10),':') x WHERE x.idx = 1) AS NVARCHAR(MAX)),
+        IDHTTracking = t.Id
+      FROM dbo.DT_KhoaDiem kd
+      INNER JOIN dbo.View_TKB_LopHocPhan lhp ON lhp.Id = kd.IDLopHocPhan
+      INNER JOIN dbo.HT_Tracking t ON t.PrimaryKey = kd.Id AND t.TableName = 'DT_KhoaDiem'
+      LEFT JOIN dbo.View_NhanSu ns ON ns.Id = t.NguoiTao
+      WHERE lhp.IDDot = 298
+        AND ((SELECT TOP 1 x.value FROM dbo.Fn_Split((SELECT TOP 1 x.value FROM dbo.Fn_Split(t.Value,';') x WHERE x.idx = 4),':') x WHERE x.idx = 1) = ''
+             OR kd.Nhom = (SELECT TOP 1 x.value FROM dbo.Fn_Split((SELECT TOP 1 x.value FROM dbo.Fn_Split(t.Value,';') x WHERE x.idx = 4),':') x WHERE x.idx = 1))
     ),
 
     CTE AS (
@@ -1093,7 +1228,7 @@ WHERE (dk.IDTrangThaiDangKy IN (1, 2, 3)) AND lh.TenLopHoc LIKE '66CS2'
         CONVERT(varchar(23), a.NgayTao, 121)
         AS NgayKhoaDiemKetThucLanDau,
 
-        ns.HoDem + ' ' + ns.Ten
+        nsHr.HoDem + ' ' + nsHr.Ten
         AS UserKhoaDiemKetThuc,
 
         CONVERT(varchar(23), a.NgayCapNhat, 121)
@@ -1107,7 +1242,7 @@ WHERE (dk.IDTrangThaiDangKy IN (1, 2, 3)) AND lh.TenLopHoc LIKE '66CS2'
           ORDER BY a.NgayCapNhat DESC
         ) AS rn
 
-    FROM DT_KhoaDiem a
+    FROM SourceKD a
 
     JOIN View_TKB_LopHocPhan b
         ON a.IDLopHocPhan = b.Id
@@ -1128,8 +1263,8 @@ WHERE (dk.IDTrangThaiDangKy IN (1, 2, 3)) AND lh.TenLopHoc LIKE '66CS2'
         AND lhpvg.IDDot = 298
     ) AS teacherAgg
 
-    LEFT JOIN HRM_NUCE.dbo.NS_NhanSu ns
-        ON ns.IDNhanSu = a.NguoiTao
+    LEFT JOIN HRM_NUCE.dbo.NS_NhanSu nsHr
+      ON nsHr.MaNhanSu = a.MaNhanSu
 
     LEFT JOIN View_HRM_ACL_ToBoMonQuanLy tbm
       ON tbm.IDToBoMon = teacherAgg.IDToBoMonTmp
@@ -1168,19 +1303,20 @@ WHERE rn = 1;`;
         .slice(0, -5);
       const filePath = path.join(
         reportsDir,
-        `locked_grade_audit_late_nomerge_${timestamp}.xlsx`
+        `locked_grade_audit_late_nomerge_${timestamp}.xlsx`,
       );
 
       const workbook = new ExcelJS.Workbook();
       const sheet = workbook.addWorksheet("ReportLateNoMerge");
 
-      const columns = orderedRecords.length > 0
-        ? Object.keys(orderedRecords[0]).map((key) => ({
-            header: key,
-            key,
-            width: Math.max(String(key).length + 2, 18)
-          }))
-        : [];
+      const columns =
+        orderedRecords.length > 0
+          ? Object.keys(orderedRecords[0]).map((key) => ({
+              header: key,
+              key,
+              width: Math.max(String(key).length + 2, 18),
+            }))
+          : [];
 
       sheet.columns = [{ header: "No", key: "__idx", width: 6 }, ...columns];
 
@@ -1193,14 +1329,19 @@ WHERE rn = 1;`;
       }
 
       await workbook.xlsx.writeFile(filePath);
-      logger.info(`Locked grade audit late no-merge report saved to ${filePath}`);
+      logger.info(
+        `Locked grade audit late no-merge report saved to ${filePath}`,
+      );
 
       return {
         filePath,
-        count: orderedRecords.length
+        count: orderedRecords.length,
       };
     } catch (error) {
-      logger.error("Error exporting locked grade audit late report (no merge):", error);
+      logger.error(
+        "Error exporting locked grade audit late report (no merge):",
+        error,
+      );
       throw error;
     }
   }

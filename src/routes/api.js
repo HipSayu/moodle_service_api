@@ -60,6 +60,35 @@ router.post('/sync/teachers', asyncHandler(async (req, res) => {
   });
 }));
 
+// Đồng bộ MỘT giảng viên từ SQL Server sang Moodle
+// Truyền mã giảng viên hoặc email qua body/query, không truyền thì dùng giảng viên mặc định
+router.post('/sync/teachers-one', asyncHandler(async (req, res) => {
+  const identifier =
+    req.body?.maGiangVien ||
+    req.body?.email ||
+    req.query?.maGiangVien ||
+    req.query?.email ||
+    null;
+
+  const result = await syncToMoodleService.syncOneTeacherToMoodle(identifier);
+  res.status(result.success ? 200 : 404).json({
+    success: result.success,
+    message: result.message,
+    data: result
+  });
+}));
+
+// Đồng bộ MỘT giảng viên theo mã giảng viên trên URL
+router.post('/sync/teachers-one/:identifier', asyncHandler(async (req, res) => {
+  const { identifier } = req.params;
+  const result = await syncToMoodleService.syncOneTeacherToMoodle(identifier);
+  res.status(result.success ? 200 : 404).json({
+    success: result.success,
+    message: result.message,
+    data: result
+  });
+}));
+
 // Đồng bộ category từ SQL Server sang Moodle
 // Done
 router.post('/sync/category', asyncHandler(async (req, res) => {
@@ -85,6 +114,40 @@ router.post('/sync/courses', asyncHandler(async (req, res) => {
   });
 }));
 
+// Đồng bộ MỘT khóa học từ SQL Server sang Moodle theo mã lớp học phần
+// Chỉ tạo nếu chưa có trên Moodle, đã có thì bỏ qua
+router.post('/sync/courses-one', asyncHandler(async (req, res) => {
+  const maLopHocPhan = req.body?.maLopHocPhan || req.query?.maLopHocPhan || null;
+  const tenDot = req.body?.tenDot || req.query?.tenDot || null;
+
+  if (!maLopHocPhan) {
+    return res.status(400).json({
+      success: false,
+      message: 'Thiếu maLopHocPhan'
+    });
+  }
+
+  const result = await syncToMoodleService.syncOneCourseToMoodle(maLopHocPhan, tenDot);
+  res.status(result.total > 0 ? 200 : 404).json({
+    success: result.success,
+    message: result.message,
+    data: result
+  });
+}));
+
+// Đồng bộ MỘT khóa học theo mã lớp học phần trên URL
+router.post('/sync/courses-one/:maLopHocPhan', asyncHandler(async (req, res) => {
+  const { maLopHocPhan } = req.params;
+  const tenDot = req.body?.tenDot || req.query?.tenDot || null;
+
+  const result = await syncToMoodleService.syncOneCourseToMoodle(maLopHocPhan, tenDot);
+  res.status(result.total > 0 ? 200 : 404).json({
+    success: result.success,
+    message: result.message,
+    data: result
+  });
+}));
+
 // Đồng bộ đăng ký khóa học từ SQL Server sang Moodle
 //Done
 router.post('/sync/enrollments-students', asyncHandler(async (req, res) => {
@@ -97,13 +160,31 @@ router.post('/sync/enrollments-students', asyncHandler(async (req, res) => {
 }));
 
 
-// Đồng bộ đăng ký khóa học từ SQL Server sang Moodle
-//Done
+// Đăng ký MỘT sinh viên vào tất cả lớp học phần của sinh viên đó
+// Truyền mã sinh viên hoặc email qua body/query, không truyền thì dùng sinh viên mặc định
 router.post('/sync/enrollments-students-one', asyncHandler(async (req, res) => {
-  const result = await syncToMoodleService.syncOneEnrollmentsStudentToMoodle();
-  res.json({
-    success: true,
-    message: 'Enrollment sync completed',
+  const identifier =
+    req.body?.maSinhVien ||
+    req.body?.email ||
+    req.query?.maSinhVien ||
+    req.query?.email ||
+    null;
+
+  const result = await syncToMoodleService.syncOneEnrollmentsStudentToMoodle(identifier);
+  res.status(result.total > 0 ? 200 : 404).json({
+    success: result.success,
+    message: result.message,
+    data: result
+  });
+}));
+
+// Đăng ký MỘT sinh viên vào các khóa học theo mã sinh viên trên URL
+router.post('/sync/enrollments-students-one/:identifier', asyncHandler(async (req, res) => {
+  const { identifier } = req.params;
+  const result = await syncToMoodleService.syncOneEnrollmentsStudentToMoodle(identifier);
+  res.status(result.total > 0 ? 200 : 404).json({
+    success: result.success,
+    message: result.message,
     data: result
   });
 }));
@@ -120,6 +201,35 @@ router.post('/sync/enrollments-teachers', asyncHandler(async (req, res) => {
   });
 }));
 
+
+// Đăng ký MỘT giảng viên vào tất cả lớp học phần của giảng viên đó
+// Truyền mã giảng viên hoặc email qua body/query, không truyền thì dùng giảng viên mặc định
+router.post('/sync/enrollments-teachers-one', asyncHandler(async (req, res) => {
+  const identifier =
+    req.body?.maGiangVien ||
+    req.body?.email ||
+    req.query?.maGiangVien ||
+    req.query?.email ||
+    null;
+
+  const result = await syncToMoodleService.syncOneTeacherEnrollmentsToMoodle(identifier);
+  res.status(result.total > 0 ? 200 : 404).json({
+    success: result.success,
+    message: result.message,
+    data: result
+  });
+}));
+
+// Đăng ký MỘT giảng viên vào các khóa học theo mã giảng viên trên URL
+router.post('/sync/enrollments-teachers-one/:identifier', asyncHandler(async (req, res) => {
+  const { identifier } = req.params;
+  const result = await syncToMoodleService.syncOneTeacherEnrollmentsToMoodle(identifier);
+  res.status(result.total > 0 ? 200 : 404).json({
+    success: result.success,
+    message: result.message,
+    data: result
+  });
+}));
 
 // Đồng bộ tất cả dữ liệu từ SQL Server sang Moodle
 //Done

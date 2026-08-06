@@ -195,7 +195,7 @@ class SyncToMoodleService {
                     ? teacher.NguyenQuan.trim()
                     : "Hanoi",
                 idnumber: teacher.MaNhanSu,
-                password: teacher.MaNhanSu,
+                password: "Huce@1234",
               };
 
               if (existingUser) {
@@ -246,6 +246,121 @@ class SyncToMoodleService {
       };
     } catch (error) {
       syncLogger.error("Teacher sync to Moodle failed:", error);
+      throw error;
+    }
+  }
+
+  // Đồng bộ MỘT giảng viên sang Moodle (theo mã giảng viên hoặc email)
+  // Không cập nhật lastSyncDate.teachers vì đây là thao tác lẻ, không phải sync toàn bộ
+  async syncOneTeacherToMoodle(identifier = null) {
+    try {
+      syncLogger.info(
+        `Starting single teacher sync to Moodle: ${identifier || "(giảng viên mặc định)"}`
+      );
+
+      const teachers = await databaseService.getTeachersOne(identifier);
+
+      if (teachers.length === 0) {
+        syncLogger.warn(
+          `Teacher not found in SQL Server: ${identifier || "(giảng viên mặc định)"}`
+        );
+        return {
+          success: false,
+          message: `Không tìm thấy giảng viên: ${identifier || "(giảng viên mặc định)"}`,
+          total: 0,
+          synced: 0,
+          errors: 0,
+          errorDetails: [],
+        };
+      }
+
+      // getTeachersOne có thể trả về nhiều dòng do JOIN lịch học, chỉ lấy dòng đầu
+      const teacher = teachers[0];
+
+      const userData = {
+        username: teacher.MaNhanSu,
+        first_name: teacher.HoDem,
+        last_name: teacher.Ten,
+        email:
+          teacher.Email && teacher.Email.trim() !== ""
+            ? teacher.Email.trim()
+            : `${teacher.MaNhanSu}@huce.edu.vn`,
+        city:
+          teacher.NguyenQuan && teacher.NguyenQuan.trim() !== ""
+            ? teacher.NguyenQuan.trim()
+            : "Hanoi",
+        idnumber: teacher.MaNhanSu,
+        password: "Huce@1234",
+      };
+
+      try {
+        let action = "";
+        let moodleUserId = null;
+
+        await retryOperation(
+          async () => {
+            const existingUser = await moodleService.getUserByIdNumber(
+              teacher.MaNhanSu
+            );
+
+            if (existingUser) {
+              await moodleService.updateUser(existingUser.id, userData);
+              action = "Cập nhật";
+              moodleUserId = existingUser.id;
+              syncLogger.info(
+                `Đã cập nhật giảng viên ${teacher.HoTenGiangVien} (${teacher.MaNhanSu})`
+              );
+            } else {
+              const newUser = await moodleService.createUser(userData);
+              action = "Tạo mới";
+              moodleUserId = newUser.id;
+              syncLogger.info(
+                `Đã tạo giảng viên ${teacher.HoTenGiangVien} (${teacher.MaNhanSu})`
+              );
+            }
+          },
+          3,
+          2000
+        );
+
+        return {
+          success: true,
+          message: `${action} giảng viên ${teacher.HoTenGiangVien} thành công`,
+          total: 1,
+          synced: 1,
+          errors: 0,
+          errorDetails: [],
+          teacher: {
+            MaNhanSu: teacher.MaNhanSu,
+            HoTenGiangVien: teacher.HoTenGiangVien,
+            Email: userData.email,
+            HanhDong: action,
+            MoodleUserId: moodleUserId,
+          },
+        };
+      } catch (error) {
+        syncLogger.error(
+          `Failed to sync teacher ${teacher.MaNhanSu}:`,
+          error
+        );
+
+        return {
+          success: false,
+          message: `Đồng bộ giảng viên ${teacher.HoTenGiangVien} thất bại`,
+          total: 1,
+          synced: 0,
+          errors: 1,
+          errorDetails: [
+            {
+              MaNhanSu: teacher.MaNhanSu,
+              HoTenGiangVien: teacher.HoTenGiangVien,
+              error: error.message,
+            },
+          ],
+        };
+      }
+    } catch (error) {
+      syncLogger.error("Single teacher sync to Moodle failed:", error);
       throw error;
     }
   }
@@ -558,198 +673,187 @@ class SyncToMoodleService {
     }
   }
 
+  // Danh sách sections chuẩn theo loại lớp (lý thuyết / thực hành)
+  getRequiredSections(courseInfo) {
+    if (courseInfo.SoTietThucHanh < courseInfo.SoTietLyThuyet) {
+      // Lớp lý thuyết
+      return [
+        {
+          name: "Tài liệu liên quan đến môn học",
+          summary: "Tài liệu liên quan đến môn học",
+          visible: 1,
+        },
+        { name: "Chương 1", summary: "Nội dung chương 1", visible: 1 },
+        { name: "Chương 2", summary: "Nội dung chương 2", visible: 1 },
+        { name: "Chương 3", summary: "Nội dung chương 3", visible: 1 },
+        {
+          name: "Kiểm tra giữa kì",
+          summary: "Bài kiểm tra giữa kì",
+          visible: 1,
+        },
+        {
+          name: "Kiểm tra cuối kì",
+          summary: "Bài kiểm tra cuối kì",
+          visible: 1,
+        },
+      ];
+    }
+
+    // Lớp thực hành
+    return [
+      {
+        name: "Tài liệu liên quan đến môn học",
+        summary: "Tài liệu liên quan đến môn học",
+        visible: 1,
+      },
+      { name: "Buổi Thông 1", summary: "Buổi Thông 1", visible: 1 },
+      { name: "Buổi Thông 2", summary: "Buổi Thông 2", visible: 1 },
+      { name: "Bảo vệ", summary: "Bảo vệ", visible: 1 },
+    ];
+  }
+
   // Đồng bộ khóa học từ SQL Server sang Moodle
-  // Done
+  // Chế độ: CHỈ TẠO lớp chưa có trên Moodle, lớp đã tồn tại thì bỏ qua hoàn toàn
+  // (không update, không đụng section) -> chạy lại nhiều lần an toàn và nhanh
   async syncCoursesToMoodle() {
     try {
-      syncLogger.info("Starting course sync to Moodle");
+      syncLogger.info("Starting course sync to Moodle (chỉ tạo lớp chưa có)");
 
-      const lastSync = this.lastSyncDate.courses;
-      const courses = await databaseService.getCourses(lastSync);
+      // Luôn quét full học kỳ, KHÔNG lọc theo lastSync:
+      // lớp thiếu hoặc lỗi ở lần chạy trước có NgayCapNhat cũ sẽ bị lọc mất
+      const courses = await databaseService.getCourses();
 
-      let syncCount = 0;
+      // Tải toàn bộ category 1 lần rồi tra theo idnumber,
+      // thay vì gọi getCategories() lặp lại cho từng lớp
+      const categoryMap = new Map();
+      try {
+        const categories = await moodleService.getCategories();
+        (categories || []).forEach((cat) => {
+          if (cat.idnumber) {
+            categoryMap.set(cat.idnumber.toString(), cat);
+          }
+        });
+        syncLogger.info(`Đã tải ${categoryMap.size} category từ Moodle`);
+      } catch (categoryError) {
+        syncLogger.error(
+          "Không tải được category từ Moodle, sẽ dùng category mặc định:",
+          categoryError
+        );
+      }
+
+      let createdCount = 0;
+      let skippedCount = 0;
       let errorCount = 0;
       const errors = [];
       const syncResults = []; // Track all sync results
 
       for (const course of courses) {
+        const shortname = `${course.MaLopHocPhan}_${course.TenDot}`;
+        let action = "";
         let syncStatus = "Thành công";
         let errorMessage = "";
-        let action = ""; // Tạo mới hoặc Cập nhật
 
         try {
-          await retryOperation(
-            async () => {
-              console.log("----------------------------------------");
-              const existingCourse = await moodleService.getCourseByShortname(
-                course.MaLopHocPhan
-              );
-              let courseData = {};
-              if (course.IDToBoMon) {
-                const category = await moodleService.getCategoryByIdNumber(
-                  course.IDToBoMon.toString()
-                );
-                if (!category) {
-                  console.log(
-                    `Category not found for department ID ${course.IDToBoMon}`
-                  );
-                  courseData = {
-                    course_fullname: `${course.TenLopHoc} - ${course.TenMonHoc} - ${course.TenDot}`,
-                    course_shortname: course.MaLopHocPhan,
-                    course_categoryid: 134,
-                    course_idnumber: course.MaLopHocPhan,
-                  };
-                } else {
-                  courseData = {
-                    course_fullname: `${course.TenLopHoc} - ${course.TenMonHoc} - ${course.TenDot}`,
-                    course_shortname: course.MaLopHocPhan,
-                    course_categoryid: category.id,
-                    course_idnumber: course.MaLopHocPhan,
-                  };
-                }
-              } else {
-                courseData = {
-                  course_fullname: `${course.TenLopHoc} - ${course.TenMonHoc} - ${course.TenDot}`,
-                  course_shortname: course.MaLopHocPhan,
-                  course_categoryid: 92,
-                  course_idnumber: course.MaLopHocPhan,
-                };
-              }
-
-              if (existingCourse) {
-                console.log("-----------------------");
-                syncLogger.info("Khóa học đã tồn tại");
-                console.log(courseData.course_fullname);
-                // Cập nhật course hiện có
-                await moodleService.updateCourse(existingCourse.id, courseData);
-                action = "Cập nhật";
-
-                // Kiểm tra và tạo sections nếu thiếu
-                try {
-                  await this.ensureCourseSections(existingCourse.id, course);
-                } catch (sectionError) {
-                  syncLogger.error(
-                    `Failed to ensure sections for existing course ${existingCourse.id}:`,
-                    sectionError
-                  );
-                }
-              } else {
-                // Tạo course mới
-                console.log("-----------------------");
-                syncLogger.info("Tạo khóa học mới");
-                const newCourse = await moodleService.createCourse(courseData);
-                console.log(
-                  `Đã tạo khóa học mới ${courseData.course_fullname}`
-                );
-                action = "Tạo mới";
-
-                // Tạo sections dựa trên loại khóa học
-                try {
-                  let sections = [];
-                  let Quiz;
-                  if (course.SoTietThucHanh < course.SoTietLyThuyet) {
-                    // Lớp lý thuyết - tạo sections cho lý thuyết
-                    sections = [
-                      {
-                        name: "Tài liệu liên quan đến môn học",
-                        summary: "Tài liệu liên quan đến môn học",
-                        visible: 1,
-                        position: 0,
-                      },
-                      {
-                        name: "Chương 1",
-                        summary: "Nội dung chương 1",
-                        visible: 1,
-                        position: 0,
-                      },
-                      {
-                        name: "Chương 2",
-                        summary: "Nội dung chương 2",
-                        visible: 1,
-                        position: 0,
-                      },
-                      {
-                        name: "Chương 3",
-                        summary: "Nội dung chương 3",
-                        visible: 1,
-                        position: 0,
-                      },
-                      {
-                        name: "Kiểm tra giữa kì",
-                        summary: "Bài kiểm tra giữa kì",
-                        visible: 1,
-                        position: 0,
-                      },
-                      {
-                        name: "Kiểm tra cuối kì",
-                        summary: "Bài kiểm tra cuối kì",
-                        visible: 1,
-                        position: 0,
-                      },
-                    ];
-                  } else {
-                    // Lớp thực hành - tạo sections cho thực hành
-                    sections = [
-                      {
-                        name: "Tài liệu liên quan đến môn học",
-                        summary: "Tài liệu liên quan đến môn học",
-                        visible: 1,
-                        position: 0,
-                      },
-                      {
-                        name: "Buổi Thông 1",
-                        summary: "Buổi Thông 1",
-                        visible: 1,
-                        position: 0,
-                      },
-                      {
-                        name: "Buổi Thông 2",
-                        summary: "Buổi Thông 2",
-                        visible: 1,
-                        position: 0,
-                      },
-                      {
-                        name: "Bảo vệ",
-                        summary: "Bảo vệ",
-                        visible: 1,
-                        position: 0,
-                      },
-                    ];
-                  }
-
-                  const createdSections = [];
-                  for (const sectionData of sections) {
-                    const section = await moodleService.createSectionWithPlugin(
-                      newCourse.id,
-                      sectionData
-                    );
-                    createdSections.push(section);
-                  }
-
-                  console.log(
-                    `Đã tạo nội dung cho khóa học ${courseData.course_fullname}`
-                  );
-                } catch (contentError) {
-                  syncLogger.error(
-                    `Failed to create content for course ${newCourse.id}:`,
-                    contentError
-                  );
-                  console.log(
-                    `Lỗi tạo nội dung cho khóa học ${courseData.course_fullname}`
-                  );
-                }
-              }
-              syncCount++;
-            },
-            3,
-            2000
+          // Đã có trên Moodle -> bỏ qua, không update
+          const existingCourse = await moodleService.getCourseByShortname(
+            shortname
           );
+
+          if (existingCourse) {
+            skippedCount++;
+            action = "Bỏ qua";
+            syncStatus = "Đã tồn tại";
+            syncLogger.info(`Khóa học đã tồn tại, bỏ qua: ${shortname}`);
+
+            syncResults.push({
+              MaLopHocPhan: course.MaLopHocPhan,
+              TenLopHoc: course.TenLopHoc,
+              TenMonHoc: course.TenMonHoc,
+              TenDot: course.TenDot,
+              HanhDong: action,
+              TrangThai: syncStatus,
+              LoiChiTiet: "",
+              ThoiGian: new Date().toISOString(),
+            });
+            continue;
+          }
+
+          // Xác định category: theo IDToBoMon, không có thì dùng mặc định
+          let categoryId;
+          if (!course.IDToBoMon) {
+            categoryId = 92;
+          } else {
+            const category = categoryMap.get(course.IDToBoMon.toString());
+            if (!category) {
+              syncLogger.warn(
+                `Không tìm thấy category cho bộ môn ${course.IDToBoMon}, dùng mặc định 134`
+              );
+              categoryId = 134;
+            } else {
+              categoryId = category.id;
+            }
+          }
+
+          const courseData = {
+            course_fullname: `${course.TenLopHoc} - ${course.TenMonHoc} - ${course.TenDot}`,
+            course_shortname: shortname,
+            course_categoryid: categoryId,
+            course_idnumber: shortname,
+          };
+
+          // Chỉ retry riêng bước tạo course
+          let newCourse;
+          try {
+            newCourse = await retryOperation(
+              () => moodleService.createCourse(courseData),
+              3,
+              2000
+            );
+          } catch (createError) {
+            // Có thể course đã được tạo nhưng response lỗi/timeout -> kiểm tra lại
+            const recheck = await moodleService.getCourseByShortname(shortname);
+            if (!recheck) {
+              throw createError;
+            }
+            newCourse = recheck;
+            syncLogger.warn(
+              `Khóa học ${shortname} đã tồn tại sau lỗi tạo, coi như tạo thành công`
+            );
+          }
+
+          createdCount++;
+          action = "Tạo mới";
+          syncLogger.info(`Đã tạo khóa học mới: ${courseData.course_fullname}`);
+
+          // Tạo sections cho khóa học vừa tạo.
+          // Lỗi section không làm hỏng khóa học -> bắt riêng
+          try {
+            const sections = this.getRequiredSections(course);
+            for (const sectionData of sections) {
+              await moodleService.createSectionWithPlugin(
+                newCourse.id,
+                sectionData
+              );
+            }
+            syncLogger.info(
+              `Đã tạo nội dung cho khóa học ${courseData.course_fullname}`
+            );
+          } catch (contentError) {
+            errorMessage = `Tạo khóa học OK nhưng lỗi tạo section: ${contentError.message}`;
+            syncStatus = "Tạo mới (thiếu section)";
+            syncLogger.error(
+              `Failed to create sections for course ${newCourse.id}:`,
+              contentError
+            );
+          }
         } catch (error) {
           errorCount++;
+          action = "Lỗi";
           syncStatus = "Lỗi";
           errorMessage = error.message;
           errors.push({
             course_code: course.MaLopHocPhan,
+            shortname,
             error: error.message,
           });
           syncLogger.error(
@@ -772,27 +876,208 @@ class SyncToMoodleService {
       }
 
       // Save results to CSV file
-      const csvFilePath = await CSVHelper.saveCourseSyncResultsToCSV(syncResults, "courses");
-
-      this.lastSyncDate.courses = new Date();
+      const csvFilePath = await CSVHelper.saveCourseSyncResultsToCSV(
+        syncResults,
+        "courses"
+      );
 
       syncLogger.info("Course sync to Moodle completed", {
         totalCourses: courses.length,
-        syncCount,
+        created: createdCount,
+        skipped: skippedCount,
         errorCount,
         errors: errors.slice(0, 10),
       });
 
       return {
-        success: true,
+        success: errorCount === 0,
+        message: `Tạo mới ${createdCount} khóa học. Đã tồn tại (bỏ qua): ${skippedCount}. Lỗi: ${errorCount}.`,
         total: courses.length,
-        synced: syncCount,
+        created: createdCount,
+        synced: createdCount, // giữ tương thích với các API cũ đang đọc field này
+        skipped: skippedCount,
         errors: errorCount,
         errorDetails: errors,
         csvFile: csvFilePath,
       };
     } catch (error) {
       syncLogger.error("Course sync to Moodle failed:", error);
+      throw error;
+    }
+  }
+
+  // Đồng bộ MỘT khóa học sang Moodle theo mã lớp học phần
+  // Cùng quy tắc với syncCoursesToMoodle: chỉ tạo nếu chưa có, đã có thì bỏ qua
+  async syncOneCourseToMoodle(maLopHocPhan, tenDot = null) {
+    try {
+      if (!maLopHocPhan) {
+        return {
+          success: false,
+          message: "Thiếu mã lớp học phần",
+          total: 0,
+          created: 0,
+          skipped: 0,
+          errors: 0,
+        };
+      }
+
+      syncLogger.info(`Starting single course sync to Moodle: ${maLopHocPhan}`);
+
+      const rows = await databaseService.getOneCourse(maLopHocPhan, tenDot);
+
+      if (rows.length === 0) {
+        syncLogger.warn(`Course not found in SQL Server: ${maLopHocPhan}`);
+        return {
+          success: false,
+          message: `Không tìm thấy lớp học phần ${maLopHocPhan}${tenDot ? ` trong đợt ${tenDot}` : " trong học kỳ hiện tại"}`,
+          total: 0,
+          created: 0,
+          skipped: 0,
+          errors: 0,
+        };
+      }
+
+      const course = rows[0];
+      const shortname = `${course.MaLopHocPhan}_${course.TenDot}`;
+
+      const result = {
+        MaLopHocPhan: course.MaLopHocPhan,
+        TenLopHoc: course.TenLopHoc,
+        TenMonHoc: course.TenMonHoc,
+        TenDot: course.TenDot,
+        ShortName: shortname,
+        LoaiLop:
+          course.SoTietThucHanh < course.SoTietLyThuyet
+            ? "Lý thuyết"
+            : "Thực hành",
+        total: 1,
+        created: 0,
+        skipped: 0,
+        errors: 0,
+      };
+
+      // Đã có trên Moodle -> bỏ qua, không update (giống syncCoursesToMoodle)
+      const existingCourse = await moodleService.getCourseByShortname(shortname);
+      if (existingCourse) {
+        syncLogger.info(`Khóa học đã tồn tại, bỏ qua: ${shortname}`);
+        return {
+          ...result,
+          success: true,
+          message: `Khóa học ${shortname} đã tồn tại trên Moodle, bỏ qua`,
+          skipped: 1,
+          HanhDong: "Bỏ qua",
+          TrangThai: "Đã tồn tại",
+          MoodleCourseId: existingCourse.id,
+        };
+      }
+
+      // Xác định category theo bộ môn, không có thì dùng mặc định
+      let categoryId;
+      if (!course.IDToBoMon) {
+        categoryId = 92;
+      } else {
+        let category = null;
+        try {
+          category = await moodleService.getCategoryByIdNumber(
+            course.IDToBoMon.toString()
+          );
+        } catch (categoryError) {
+          syncLogger.error(
+            "Không tra được category từ Moodle, dùng mặc định 134:",
+            categoryError
+          );
+        }
+
+        if (!category) {
+          syncLogger.warn(
+            `Không tìm thấy category cho bộ môn ${course.IDToBoMon}, dùng mặc định 134`
+          );
+          categoryId = 134;
+        } else {
+          categoryId = category.id;
+        }
+      }
+
+      const courseData = {
+        course_fullname: `${course.TenLopHoc} - ${course.TenMonHoc} - ${course.TenDot}`,
+        course_shortname: shortname,
+        course_categoryid: categoryId,
+        course_idnumber: shortname,
+      };
+
+      // Tạo khóa học
+      let newCourse;
+      try {
+        newCourse = await retryOperation(
+          () => moodleService.createCourse(courseData),
+          3,
+          2000
+        );
+      } catch (createError) {
+        // Có thể course đã được tạo nhưng response lỗi/timeout -> kiểm tra lại
+        const recheck = await moodleService.getCourseByShortname(shortname);
+        if (!recheck) {
+          syncLogger.error(
+            `Failed to create course ${shortname}:`,
+            createError
+          );
+          return {
+            ...result,
+            success: false,
+            message: `Tạo khóa học ${shortname} thất bại: ${createError.message}`,
+            errors: 1,
+            HanhDong: "Lỗi",
+            TrangThai: "Lỗi",
+            LoiChiTiet: createError.message,
+          };
+        }
+        newCourse = recheck;
+        syncLogger.warn(
+          `Khóa học ${shortname} đã tồn tại sau lỗi tạo, coi như tạo thành công`
+        );
+      }
+
+      syncLogger.info(`Đã tạo khóa học mới: ${courseData.course_fullname}`);
+
+      // Tạo sections. Lỗi section không làm hỏng khóa học -> bắt riêng
+      const createdSections = [];
+      let sectionError = "";
+      try {
+        const sections = this.getRequiredSections(course);
+        for (const sectionData of sections) {
+          await moodleService.createSectionWithPlugin(
+            newCourse.id,
+            sectionData
+          );
+          createdSections.push(sectionData.name);
+        }
+        syncLogger.info(
+          `Đã tạo nội dung cho khóa học ${courseData.course_fullname}`
+        );
+      } catch (contentError) {
+        sectionError = contentError.message;
+        syncLogger.error(
+          `Failed to create sections for course ${newCourse.id}:`,
+          contentError
+        );
+      }
+
+      return {
+        ...result,
+        success: true,
+        message: sectionError
+          ? `Đã tạo khóa học ${shortname} nhưng lỗi tạo section: ${sectionError}`
+          : `Đã tạo khóa học ${shortname} cùng ${createdSections.length} section`,
+        created: 1,
+        HanhDong: "Tạo mới",
+        TrangThai: sectionError ? "Tạo mới (thiếu section)" : "Thành công",
+        LoiChiTiet: sectionError,
+        MoodleCourseId: newCourse.id,
+        CategoryId: categoryId,
+        Sections: createdSections,
+      };
+    } catch (error) {
+      syncLogger.error("Single course sync to Moodle failed:", error);
       throw error;
     }
   }
@@ -815,12 +1100,12 @@ class SyncToMoodleService {
         try {
           // Lấy course trong Moodle
           const moodleCourse = await moodleService.getCourseByShortname(
-            course.MaLopHocPhan
+            `${course.MaLopHocPhan}_${course.TenDot}`
           );
-          console.log(`Khóa học ${moodleCourse?.fullname || course.MaLopHocPhan}`);
+          console.log(`Khóa học ${moodleCourse?.fullname || `${course.MaLopHocPhan}_${course.TenDot}`}`);
 
           if (!moodleCourse) {
-            syncLogger.warn(`Course not found in Moodle: ${course.MaLopHocPhan}`);
+            syncLogger.warn(`Course not found in Moodle: ${`${course.MaLopHocPhan}_${course.TenDot}`}`);
             continue;
           }
 
@@ -957,228 +1242,262 @@ class SyncToMoodleService {
     }
   }
 
-  async syncOneEnrollmentsStudentToMoodle() {
+  // Đăng ký MỘT sinh viên vào tất cả lớp học phần mà sinh viên đó đã đăng ký
+  // Không cập nhật lastSyncDate.studentEnrollments vì đây là thao tác lẻ
+  async syncOneEnrollmentsStudentToMoodle(identifier = null) {
     try {
-      syncLogger.info("Starting enrollment sync to Moodle");
+      syncLogger.info(
+        `Starting single student enrollment sync to Moodle: ${identifier || "(sinh viên mặc định)"}`
+      );
 
-      const lastSync = this.lastSyncDate.studentEnrollments;
-      const courses = await databaseService.getOneStudentCourseEnrollments();
-      let totalEnrollments = 0;
+      const enrollments = await databaseService.getOneStudentCourseEnrollments(
+        identifier
+      );
+
+      if (enrollments.length === 0) {
+        syncLogger.warn(
+          `No course found for student: ${identifier || "(sinh viên mặc định)"}`
+        );
+        return {
+          success: false,
+          message: `Không tìm thấy lớp học phần nào của sinh viên: ${identifier || "(sinh viên mặc định)"}`,
+          total: 0,
+          synced: 0,
+          skipped: 0,
+          errors: 0,
+          details: [],
+        };
+      }
+
       let syncCount = 0;
+      let skipped = 0;
       let errorCount = 0;
-      const errors = [];
-      const csvFiles = []; // Track all CSV files created
+      const details = [];
+      const moodleUserCache = new Map(); // MaSinhVien -> moodle user (tránh gọi lặp)
 
-      for (const course of courses) {
+      for (const enrollment of enrollments) {
+        const shortname = `${enrollment.MaLopHocPhan}_${enrollment.TenDot}`;
+
+        const detail = {
+          MaSinhVien: enrollment.MaSinhVien,
+          HoTenSinhVien: enrollment.HoTenSinhVien,
+          MaLopHocPhan: enrollment.MaLopHocPhan,
+          TenMonHoc: enrollment.TenMonHoc,
+          TenLopHoc: enrollment.TenLopHoc,
+          ShortName: shortname,
+          TrangThai: "Thành công",
+          LoiChiTiet: "",
+          ThoiGian: new Date().toISOString(),
+        };
+
         try {
-          // Lấy course trong Moodle
-          const moodleCourse = await moodleService.getCourseByShortname(
-            course.MaLopHocPhan
-          );
-          console.log(`Khóa học ${moodleCourse?.fullname || course.MaLopHocPhan}`);
+          // Tìm sinh viên trong Moodle (cache theo mã sinh viên)
+          let moodleUser = moodleUserCache.get(enrollment.MaSinhVien);
+          if (moodleUser === undefined) {
+            moodleUser = await moodleService.getUserByIdNumber(
+              enrollment.MaSinhVien
+            );
+            moodleUserCache.set(enrollment.MaSinhVien, moodleUser);
+          }
 
-          if (!moodleCourse) {
-            syncLogger.warn(`Course not found in Moodle: ${course.MaLopHocPhan}`);
+          if (!moodleUser) {
+            skipped++;
+            detail.TrangThai = "Bỏ qua";
+            detail.LoiChiTiet =
+              "Không tìm thấy sinh viên trong Moodle (chạy /api/sync/students trước)";
+            syncLogger.warn(
+              `Student not found in Moodle: ${enrollment.MaSinhVien}`
+            );
+            details.push(detail);
             continue;
           }
 
-          // Lấy danh sách đăng ký từ SQL Server
-          const enrollments = await databaseService.getOneStudentCourseEnrollments(
-            course.MaLopHocPhan,
-            lastSync
+          // Tìm khóa học trong Moodle
+          const moodleCourse = await moodleService.getCourseByShortname(
+            shortname
           );
 
-          if (enrollments.length === 0) {
-            continue; // Skip courses with no enrollments
+          if (!moodleCourse) {
+            skipped++;
+            detail.TrangThai = "Bỏ qua";
+            detail.LoiChiTiet = "Không tìm thấy khóa học trong Moodle";
+            syncLogger.warn(`Course not found in Moodle: ${shortname}`);
+            details.push(detail);
+            continue;
           }
 
-          totalEnrollments += enrollments.length;
-          const courseEnrollmentResults = []; // Results for this specific course
+          // 5 = student role
+          await moodleService.enrollUserToCourse(
+            moodleUser.id,
+            moodleCourse.id,
+            5,
+            moodleUser,
+            moodleCourse
+          );
 
-          for (const enrollment of enrollments) {
-            let syncStatus = "Thành công";
-            let errorMessage = "";
-
-            try {
-              const moodleUser = await moodleService.getUserByIdNumber(
-                enrollment.MaSinhVien
-              );
-              console.log(
-                `Sinh Viên ${enrollment.TenMonHoc}-${enrollment.MaSinhVien}`
-              );
-
-              if (moodleUser) {
-                // Đăng ký student vào course
-                await moodleService.enrollUserToCourse(
-                  moodleUser.id,
-                  moodleCourse.id,
-                  5,
-                  moodleUser,
-                  moodleCourse
-                ); // 5 = student role
-
-                syncCount++;
-                syncLogger.debug(
-                  `Enrolled student ${enrollment.HoTenSinhVien} to course ${course.TenMonHoc}`
-                );
-              } else {
-                syncStatus = "Lỗi";
-                errorMessage = "Không tìm thấy sinh viên trong Moodle";
-                errorCount++;
-                errors.push({
-                  MaSinhVien: enrollment.MaSinhVien,
-                  MaLopHocPhan: course.MaLopHocPhan,
-                  error: errorMessage,
-                });
-              }
-            } catch (enrollError) {
-              errorCount++;
-              syncStatus = "Lỗi";
-              errorMessage = enrollError.message;
-              errors.push({
-                MaSinhVien: enrollment.MaSinhVien,
-                MaLopHocPhan: course.MaLopHocPhan,
-                error: enrollError.message,
-              });
-              syncLogger.error(
-                `Failed to enroll student ${enrollment.MaSinhVien} to course ${course.MaLopHocPhan}:`,
-                enrollError
-              );
-            }
-
-            // Add to course-specific results
-            courseEnrollmentResults.push({
-              MaSinhVien: enrollment.MaSinhVien,
-              HoTenSinhVien: enrollment.HoTenSinhVien,
-              TrangThai: syncStatus,
-              LoiChiTiet: errorMessage,
-              ThoiGian: new Date().toISOString(),
-            });
-          }
-
-          // Save CSV file for this course
-          if (courseEnrollmentResults.length > 0) {
-            try {
-              const csvFilePath = await CSVHelper.saveCourseEnrollmentToCSV(
-                courseEnrollmentResults,
-                course.MaLopHocPhan,
-                course.TenMonHoc
-              );
-              csvFiles.push({
-                courseCode: course.MaLopHocPhan,
-                courseName: course.TenMonHoc,
-                filePath: csvFilePath,
-                totalStudents: courseEnrollmentResults.length,
-                successCount: courseEnrollmentResults.filter(r => r.TrangThai === "Thành công").length,
-                errorCount: courseEnrollmentResults.filter(r => r.TrangThai === "Lỗi").length,
-              });
-            } catch (csvError) {
-              syncLogger.error(
-                `Failed to save CSV for course ${course.MaLopHocPhan}:`,
-                csvError
-              );
-            }
-          }
-
-          console.log(`Done_______________________${course.TenMonHoc}`);
-        } catch (courseError) {
+          syncCount++;
+          detail.MoodleCourseId = moodleCourse.id;
+          syncLogger.info(
+            `Enrolled student ${enrollment.HoTenSinhVien} to course ${shortname}`
+          );
+        } catch (enrollError) {
+          errorCount++;
+          detail.TrangThai = "Lỗi";
+          detail.LoiChiTiet = enrollError.message;
           syncLogger.error(
-            `Failed to sync enrollments for course ${course.MaLopHocPhan}:`,
-            courseError
+            `Failed to enroll student ${enrollment.MaSinhVien} to course ${shortname}:`,
+            enrollError
           );
         }
+
+        details.push(detail);
       }
 
-      this.lastSyncDate.studentEnrollments = new Date();
-      this.saveLastSync();
-
-      syncLogger.info("Enrollment sync to Moodle completed", {
-        totalEnrollments,
-        syncCount,
-        errorCount,
-        csvFilesCreated: csvFiles.length,
-        errors: errors.slice(0, 10),
-      });
+      syncLogger.info(
+        `Single student enrollment sync completed: ${syncCount}/${enrollments.length} synced, ${skipped} skipped, ${errorCount} errors`
+      );
 
       return {
-        success: true,
-        total: totalEnrollments,
+        success: errorCount === 0,
+        message: `Đăng ký ${syncCount}/${enrollments.length} lớp học phần cho sinh viên ${enrollments[0].HoTenSinhVien}. Bỏ qua: ${skipped}. Lỗi: ${errorCount}.`,
+        MaSinhVien: enrollments[0].MaSinhVien,
+        HoTenSinhVien: enrollments[0].HoTenSinhVien,
+        total: enrollments.length,
         synced: syncCount,
+        skipped,
         errors: errorCount,
-        errorDetails: errors,
-        csvFiles: csvFiles,
-        csvFilesCount: csvFiles.length,
+        details,
       };
     } catch (error) {
-      syncLogger.error("Enrollment sync to Moodle failed:", error);
+      syncLogger.error("Single student enrollment sync to Moodle failed:", error);
       throw error;
+    }
+  }
+
+  // Lấy map userId -> Set(roleId) của những người ĐÃ tham gia course trên Moodle.
+  // Trả về null nếu không lấy được (khi đó coi như chưa biết, vẫn tiến hành đăng ký)
+  async getEnrolledRoleMap(moodleCourseId) {
+    try {
+      const enrolledUsers = await moodleService.getEnrolledUsers(moodleCourseId);
+      const roleMap = new Map();
+      (enrolledUsers || []).forEach((user) => {
+        roleMap.set(
+          user.id,
+          new Set((user.roles || []).map((role) => role.roleid))
+        );
+      });
+      return roleMap;
+    } catch (error) {
+      syncLogger.warn(
+        `Không lấy được danh sách thành viên của course ${moodleCourseId}, sẽ đăng ký không kiểm tra trùng: ${error.message}`
+      );
+      return null;
     }
   }
 
   // Đồng bộ đăng ký giảng viên vào khóa học từ SQL Server sang Moodle
   // Role: IsTroGiang = 1 -> Trợ giảng (roleId = 4), ngược lại -> Giảng viên chính (roleId = 3)
-  // DONE
+  // Giảng viên đã có mặt trong lớp với đúng role -> bỏ qua, không gọi lại Moodle
   async syncTeacherEnrollmentsToMoodle() {
     try {
       syncLogger.info("Starting teacher enrollment sync to Moodle");
-      const lastSync = this.lastSyncDate.teacherEnrollments;
-      const courses = await databaseService.getCourses();
-      let totalEnrollments = 0;
+
+      // 1 query lấy toàn bộ phân công giảng viên của học kỳ.
+      // KHÔNG lọc theo lastSync: giảng viên chưa từng đổi thông tin sẽ bị lọc mất,
+      // kéo theo lớp của họ không bao giờ được đăng ký. Việc bỏ qua trùng lặp
+      // đã do kiểm tra "đã tham gia lớp" bên dưới đảm nhiệm.
+      const enrollments = await databaseService.getTeacherCourseEnrollments();
+
+      // Gom theo lớp học phần để mỗi lớp chỉ tra Moodle 1 lần
+      const courseGroups = new Map();
+      for (const row of enrollments) {
+        const shortname = `${row.MaLopHocPhan}_${row.TenDot}`;
+        if (!courseGroups.has(shortname)) {
+          courseGroups.set(shortname, {
+            shortname,
+            MaLopHocPhan: row.MaLopHocPhan,
+            TenMonHoc: row.TenMonHoc,
+            TenLopHoc: row.TenLopHoc,
+            TenDot: row.TenDot,
+            rows: [],
+          });
+        }
+        courseGroups.get(shortname).rows.push(row);
+      }
+
+      syncLogger.info(
+        `Tìm thấy ${enrollments.length} phân công giảng viên thuộc ${courseGroups.size} lớp học phần`
+      );
+
+      const totalEnrollments = enrollments.length;
       let syncCount = 0;
+      let alreadyCount = 0;
+      let skippedCount = 0;
       let errorCount = 0;
       const errors = [];
       const csvFiles = []; // Track all CSV files created
+      const moodleUserCache = new Map(); // MaGiangVien -> moodle user
 
-      for (const course of courses) {
+      for (const group of courseGroups.values()) {
         try {
           // Lấy course trong Moodle
           const moodleCourse = await moodleService.getCourseByShortname(
-            course.MaLopHocPhan
+            group.shortname
           );
-          console.log(`Khóa học ${moodleCourse?.fullname || course.MaLopHocPhan}`);
 
           if (!moodleCourse) {
-            syncLogger.warn(`Course not found in Moodle: ${course.MaLopHocPhan}`);
+            skippedCount += group.rows.length;
+            syncLogger.warn(`Course not found in Moodle: ${group.shortname}`);
             continue;
           }
 
-          // Lấy danh sách đăng ký giảng viên từ HRM_NUCE database
-          const enrollments = await databaseService.getTeacherCourseEnrollments(
-            course.MaLopHocPhan,
-            lastSync
-          );
+          console.log(`Khóa học ${moodleCourse.fullname}`);
 
-          if (enrollments.length === 0) {
-            continue; // Skip courses with no teacher enrollments
-          }
+          // Danh sách người đã tham gia lớp -> dùng để bỏ qua giảng viên đã có
+          const enrolledRoleMap = await this.getEnrolledRoleMap(moodleCourse.id);
 
-          totalEnrollments += enrollments.length;
           const courseEnrollmentResults = []; // Results for this specific course
 
-          for (const enrollment of enrollments) {
+          for (const enrollment of group.rows) {
+            // IsTroGiang = 1: Trợ giảng (roleId = 4)
+            // IsTroGiang = 0 hoặc null: Giảng viên chính (roleId = 3)
+            const roleId = enrollment.IsTroGiang === 1 ? 4 : 3;
+            const roleName =
+              enrollment.IsTroGiang === 1 ? "Trợ giảng" : "Giảng viên chính";
+
             let syncStatus = "Thành công";
             let errorMessage = "";
-            let hanhDong = "Cập nhật"; // Mặc định là cập nhật
+            let hanhDong = "Đăng ký mới";
 
             try {
-              const moodleUser = await moodleService.getUserByIdNumber(
-                enrollment.MaGiangVien
-              );
-              console.log(
-                `Giảng viên ${enrollment.HoTenGiangVien}-${enrollment.MaGiangVien}`
-              );
+              // Tìm giảng viên trong Moodle (cache theo mã giảng viên)
+              let moodleUser = moodleUserCache.get(enrollment.MaGiangVien);
+              if (moodleUser === undefined) {
+                moodleUser = await moodleService.getUserByIdNumber(
+                  enrollment.MaGiangVien
+                );
+                moodleUserCache.set(enrollment.MaGiangVien, moodleUser);
+              }
 
-              if (moodleUser) {
-                // Xác định role dựa trên trường IsTroGiang
-                // IsTroGiang = 1: Trợ giảng (roleId = 4)
-                // IsTroGiang = 0 hoặc null: Giảng viên chính (roleId = 3)
-                const roleId = enrollment.IsTroGiang === 1 ? 4 : 3;
-                const roleName =
-                  enrollment.IsTroGiang === 1
-                    ? "Trợ giảng"
-                    : "Giảng viên chính";
-
-                // Đăng ký teacher vào course với role tương ứng
+              if (!moodleUser) {
+                syncStatus = "Lỗi";
+                hanhDong = "N/A";
+                errorMessage = "Không tìm thấy giảng viên trong Moodle";
+                errorCount++;
+                errors.push({
+                  MaGiangVien: enrollment.MaGiangVien,
+                  MaLopHocPhan: group.MaLopHocPhan,
+                  error: errorMessage,
+                });
+              } else if (enrolledRoleMap && enrolledRoleMap.get(moodleUser.id)?.has(roleId)) {
+                // Đã ở trong lớp với đúng role -> bỏ qua
+                alreadyCount++;
+                syncStatus = "Đã tồn tại";
+                hanhDong = "Bỏ qua";
+                syncLogger.info(
+                  `${roleName} ${enrollment.HoTenGiangVien} đã có trong ${group.shortname}, bỏ qua`
+                );
+              } else {
                 await moodleService.enrollTeacherToCourse(
                   moodleUser.id,
                   moodleCourse.id,
@@ -1187,120 +1506,247 @@ class SyncToMoodleService {
                   moodleCourse
                 );
                 syncCount++;
-                hanhDong = "Đăng ký mới"; // If successful, it's a new enrollment
                 syncLogger.debug(
-                  `Enrolled ${roleName} ${enrollment.HoTenGiangVien} to course ${course.TenMonHoc} (role: ${roleId})`
+                  `Enrolled ${roleName} ${enrollment.HoTenGiangVien} to course ${group.shortname} (role: ${roleId})`
                 );
-
-                // Add to course-specific results
-                courseEnrollmentResults.push({
-                  MaGiangVien: enrollment.MaGiangVien,
-                  HoTenGiangVien: enrollment.HoTenGiangVien,
-                  LoaiGiangVien: roleName,
-                  TrangThai: syncStatus,
-                  HanhDong: hanhDong,
-                  LoiChiTiet: errorMessage,
-                  ThoiGian: new Date().toISOString(),
-                });
-              } else {
-                syncStatus = "Lỗi";
-                errorMessage = "Không tìm thấy giảng viên trong Moodle";
-                errorCount++;
-                errors.push({
-                  MaGiangVien: enrollment.MaGiangVien,
-                  MaLopHocPhan: course.MaLopHocPhan,
-                  error: errorMessage,
-                });
-
-                // Add to course-specific results
-                courseEnrollmentResults.push({
-                  MaGiangVien: enrollment.MaGiangVien,
-                  HoTenGiangVien: enrollment.HoTenGiangVien,
-                  LoaiGiangVien: enrollment.IsTroGiang === 1 ? "Trợ giảng" : "Giảng viên chính",
-                  TrangThai: syncStatus,
-                  HanhDong: "N/A",
-                  LoiChiTiet: errorMessage,
-                  ThoiGian: new Date().toISOString(),
-                });
               }
             } catch (enrollError) {
               errorCount++;
               syncStatus = "Lỗi";
+              hanhDong = "N/A";
               errorMessage = enrollError.message;
               errors.push({
                 MaGiangVien: enrollment.MaGiangVien,
-                MaLopHocPhan: course.MaLopHocPhan,
+                MaLopHocPhan: group.MaLopHocPhan,
                 error: enrollError.message,
               });
               syncLogger.error(
-                `Failed to enroll teacher ${enrollment.MaGiangVien} to course ${course.MaLopHocPhan}:`,
+                `Failed to enroll teacher ${enrollment.MaGiangVien} to course ${group.shortname}:`,
                 enrollError
               );
-
-              // Add to course-specific results
-              courseEnrollmentResults.push({
-                MaGiangVien: enrollment.MaGiangVien,
-                HoTenGiangVien: enrollment.HoTenGiangVien,
-                LoaiGiangVien: enrollment.IsTroGiang === 1 ? "Trợ giảng" : "Giảng viên chính",
-                TrangThai: syncStatus,
-                HanhDong: "N/A",
-                LoiChiTiet: errorMessage,
-                ThoiGian: new Date().toISOString(),
-              });
             }
+
+            courseEnrollmentResults.push({
+              MaGiangVien: enrollment.MaGiangVien,
+              HoTenGiangVien: enrollment.HoTenGiangVien,
+              LoaiGiangVien: roleName,
+              TrangThai: syncStatus,
+              HanhDong: hanhDong,
+              LoiChiTiet: errorMessage,
+              ThoiGian: new Date().toISOString(),
+            });
           }
 
           // Save CSV file for this course
           if (courseEnrollmentResults.length > 0) {
             try {
-              const csvFilePath = await CSVHelper.saveTeacherCourseEnrollmentToCSV(
-                courseEnrollmentResults,
-                course.MaLopHocPhan,
-                course.TenMonHoc
-              );
+              const csvFilePath =
+                await CSVHelper.saveTeacherCourseEnrollmentToCSV(
+                  courseEnrollmentResults,
+                  group.MaLopHocPhan,
+                  group.TenMonHoc
+                );
               csvFiles.push({
-                courseCode: course.MaLopHocPhan,
-                courseName: course.TenMonHoc,
+                courseCode: group.MaLopHocPhan,
+                courseName: group.TenMonHoc,
                 filePath: csvFilePath,
                 totalTeachers: courseEnrollmentResults.length,
-                successCount: courseEnrollmentResults.filter(r => r.TrangThai === "Thành công").length,
-                errorCount: courseEnrollmentResults.filter(r => r.TrangThai === "Lỗi").length,
+                successCount: courseEnrollmentResults.filter(
+                  (r) => r.TrangThai === "Thành công"
+                ).length,
+                alreadyCount: courseEnrollmentResults.filter(
+                  (r) => r.TrangThai === "Đã tồn tại"
+                ).length,
+                errorCount: courseEnrollmentResults.filter(
+                  (r) => r.TrangThai === "Lỗi"
+                ).length,
               });
             } catch (csvError) {
               syncLogger.error(
-                `Failed to save CSV for course ${course.MaLopHocPhan}:`,
+                `Failed to save CSV for course ${group.MaLopHocPhan}:`,
                 csvError
               );
             }
           }
 
-          console.log(`Done_______________________${course.TenMonHoc}`);
+          console.log(`Done_______________________${group.TenMonHoc}`);
         } catch (courseError) {
           syncLogger.error(
-            `Failed to sync teacher enrollments for course ${course.MaLopHocPhan}:`,
+            `Failed to sync teacher enrollments for course ${group.shortname}:`,
             courseError
           );
         }
       }
 
-      this.lastSyncDate.teacherEnrollments = new Date();
-      this.saveLastSync();
-
       syncLogger.info(
-        `Teacher enrollment sync completed: ${syncCount}/${totalEnrollments} synced, ${errorCount} errors (Role: IsTroGiang=1→Trợ giảng, else→Giảng viên chính)`
+        `Teacher enrollment sync completed: ${syncCount} đăng ký mới, ${alreadyCount} đã có sẵn, ${skippedCount} bỏ qua (không có lớp trên Moodle), ${errorCount} lỗi / tổng ${totalEnrollments}`
       );
 
       return {
-        success: true,
+        success: errorCount === 0,
+        message: `Đăng ký mới ${syncCount}. Đã có sẵn: ${alreadyCount}. Bỏ qua (không có lớp trên Moodle): ${skippedCount}. Lỗi: ${errorCount}.`,
         total: totalEnrollments,
+        totalCourses: courseGroups.size,
         synced: syncCount,
+        alreadyEnrolled: alreadyCount,
+        skipped: skippedCount,
         errors: errorCount,
-        errorDetails: errors,
+        errorDetails: errors.slice(0, 50),
         csvFiles: csvFiles,
         csvFilesCount: csvFiles.length,
       };
     } catch (error) {
       syncLogger.error("Teacher enrollment sync to Moodle failed:", error);
+      throw error;
+    }
+  }
+
+  // Đăng ký MỘT giảng viên vào tất cả lớp học phần của giảng viên đó
+  // Role: IsTroGiang = 1 -> Trợ giảng (roleId = 4), ngược lại -> Giảng viên chính (roleId = 3)
+  // Không cập nhật lastSyncDate.teacherEnrollments vì đây là thao tác lẻ
+  async syncOneTeacherEnrollmentsToMoodle(identifier = null) {
+    try {
+      syncLogger.info(
+        `Starting single teacher enrollment sync to Moodle: ${identifier || "(giảng viên mặc định)"}`
+      );
+
+      const enrollments = await databaseService.getTeacherCourseEnrollmentsOne(
+        identifier
+      );
+
+      if (enrollments.length === 0) {
+        syncLogger.warn(
+          `No course found for teacher: ${identifier || "(giảng viên mặc định)"}`
+        );
+        return {
+          success: false,
+          message: `Không tìm thấy lớp học phần nào của giảng viên: ${identifier || "(giảng viên mặc định)"}`,
+          total: 0,
+          synced: 0,
+          skipped: 0,
+          errors: 0,
+          details: [],
+        };
+      }
+
+      let syncCount = 0;
+      let skipped = 0;
+      let errorCount = 0;
+      const details = [];
+      const moodleUserCache = new Map(); // MaGiangVien -> moodle user (tránh gọi lặp)
+
+      for (const enrollment of enrollments) {
+        const shortname = `${enrollment.MaLopHocPhan}_${enrollment.TenDot}`;
+        const roleId = enrollment.IsTroGiang === 1 ? 4 : 3;
+        const roleName =
+          enrollment.IsTroGiang === 1 ? "Trợ giảng" : "Giảng viên chính";
+
+        const detail = {
+          MaGiangVien: enrollment.MaGiangVien,
+          HoTenGiangVien: enrollment.HoTenGiangVien,
+          MaLopHocPhan: enrollment.MaLopHocPhan,
+          TenMonHoc: enrollment.TenMonHoc,
+          TenLopHoc: enrollment.TenLopHoc,
+          ShortName: shortname,
+          LoaiGiangVien: roleName,
+          TrangThai: "Thành công",
+          LoiChiTiet: "",
+          ThoiGian: new Date().toISOString(),
+        };
+
+        try {
+          // Tìm giảng viên trong Moodle (cache theo mã giảng viên)
+          let moodleUser = moodleUserCache.get(enrollment.MaGiangVien);
+          if (moodleUser === undefined) {
+            moodleUser = await moodleService.getUserByIdNumber(
+              enrollment.MaGiangVien
+            );
+            moodleUserCache.set(enrollment.MaGiangVien, moodleUser);
+          }
+
+          if (!moodleUser) {
+            skipped++;
+            detail.TrangThai = "Bỏ qua";
+            detail.LoiChiTiet =
+              "Không tìm thấy giảng viên trong Moodle (chạy /api/sync/teachers-one trước)";
+            syncLogger.warn(
+              `Teacher not found in Moodle: ${enrollment.MaGiangVien}`
+            );
+            details.push(detail);
+            continue;
+          }
+
+          // Tìm khóa học trong Moodle
+          const moodleCourse = await moodleService.getCourseByShortname(
+            shortname
+          );
+
+          if (!moodleCourse) {
+            skipped++;
+            detail.TrangThai = "Bỏ qua";
+            detail.LoiChiTiet = "Không tìm thấy khóa học trong Moodle";
+            syncLogger.warn(`Course not found in Moodle: ${shortname}`);
+            details.push(detail);
+            continue;
+          }
+
+          detail.MoodleCourseId = moodleCourse.id;
+
+          // Đã ở trong lớp với đúng role -> bỏ qua
+          const enrolledRoleMap = await this.getEnrolledRoleMap(moodleCourse.id);
+          if (enrolledRoleMap && enrolledRoleMap.get(moodleUser.id)?.has(roleId)) {
+            skipped++;
+            detail.TrangThai = "Đã tồn tại";
+            detail.LoiChiTiet = "Giảng viên đã có trong lớp";
+            syncLogger.info(
+              `${roleName} ${enrollment.HoTenGiangVien} đã có trong ${shortname}, bỏ qua`
+            );
+            details.push(detail);
+            continue;
+          }
+
+          await moodleService.enrollTeacherToCourse(
+            moodleUser.id,
+            moodleCourse.id,
+            roleId,
+            moodleUser,
+            moodleCourse
+          );
+
+          syncCount++;
+          syncLogger.info(
+            `Enrolled ${roleName} ${enrollment.HoTenGiangVien} to course ${shortname} (role: ${roleId})`
+          );
+        } catch (enrollError) {
+          errorCount++;
+          detail.TrangThai = "Lỗi";
+          detail.LoiChiTiet = enrollError.message;
+          syncLogger.error(
+            `Failed to enroll teacher ${enrollment.MaGiangVien} to course ${shortname}:`,
+            enrollError
+          );
+        }
+
+        details.push(detail);
+      }
+
+      syncLogger.info(
+        `Single teacher enrollment sync completed: ${syncCount}/${enrollments.length} synced, ${skipped} skipped, ${errorCount} errors`
+      );
+
+      return {
+        success: errorCount === 0,
+        message: `Đăng ký ${syncCount}/${enrollments.length} lớp học phần cho giảng viên ${enrollments[0].HoTenGiangVien}. Bỏ qua: ${skipped}. Lỗi: ${errorCount}.`,
+        MaGiangVien: enrollments[0].MaGiangVien,
+        HoTenGiangVien: enrollments[0].HoTenGiangVien,
+        total: enrollments.length,
+        synced: syncCount,
+        skipped,
+        errors: errorCount,
+        details,
+      };
+    } catch (error) {
+      syncLogger.error("Single teacher enrollment sync to Moodle failed:", error);
       throw error;
     }
   }
