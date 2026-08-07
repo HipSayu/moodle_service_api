@@ -7,165 +7,36 @@ import { fileURLToPath } from "url";
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
+const CSV_ROOT = path.join(__dirname, "../../logs/csv");
+
+// Tiêu đề cột tiếng Việt cho các khóa hay dùng.
+// Khóa nào không có ở đây thì lấy nguyên tên khóa làm tiêu đề.
+const COLUMN_TITLES = {
+  MaSinhVien: "Mã Sinh Viên",
+  HoTenSinhVien: "Họ Tên Sinh Viên",
+  MaGiangVien: "Mã Giảng Viên",
+  MaNhanSu: "Mã Nhân Sự",
+  HoTenGiangVien: "Họ Tên Giảng Viên",
+  LoaiGiangVien: "Loại Giảng Viên",
+  HoDem: "Họ Đệm",
+  Ten: "Tên",
+  Email: "Email",
+  NguyenQuan: "Nguyên Quán",
+  MaLopHocPhan: "Mã Lớp Học Phần",
+  TenLopHoc: "Tên Lớp Học",
+  TenMonHoc: "Tên Môn Học",
+  TenDot: "Tên Đợt",
+  ShortName: "Shortname Moodle",
+  MoodleUserId: "Moodle User ID",
+  MoodleCourseId: "Moodle Course ID",
+  HanhDong: "Hành Động",
+  TrangThai: "Trạng Thái",
+  LoiChiTiet: "Lỗi Chi Tiết",
+  ThoiGian: "Thời Gian",
+};
+
 class CSVHelper {
-  /**
-   * Get CSV file name with timestamp
-   * @param {string} type - Type of sync (students, teachers, etc.)
-   * @returns {string} Full path to CSV file
-   */
-  static getCSVFileName(type) {
-    const timestamp = new Date()
-      .toISOString()
-      .replace(/[:.]/g, "-")
-      .slice(0, -5);
-    const csvDir = path.join(__dirname, "../../logs/csv");
-    if (!fs.existsSync(csvDir)) {
-      fs.mkdirSync(csvDir, { recursive: true });
-    }
-    return path.join(csvDir, `sync_${type}_${timestamp}.csv`);
-  }
-
-  /**
-   * Save student sync results to CSV file
-   * @param {Array} results - Array of sync results
-   * @param {string} type - Type of sync (students, teachers, etc.)
-   * @returns {Promise<string>} Path to created CSV file
-   */
-  static async saveSyncResultsToCSV(results, type) {
-    try {
-      const csvFilePath = this.getCSVFileName(type);
-
-      const csvWriter = createObjectCsvWriter({
-        path: csvFilePath,
-        header: [
-          { id: "MaSinhVien", title: "Mã Sinh Viên" },
-          { id: "HoDem", title: "Họ Đệm" },
-          { id: "Ten", title: "Tên" },
-          { id: "Email", title: "Email" },
-          { id: "NguyenQuan", title: "Nguyên Quán" },
-          { id: "TrangThai", title: "Trạng Thái" },
-          { id: "LoiChiTiet", title: "Lỗi Chi Tiết" },
-          { id: "ThoiGian", title: "Thời Gian" },
-        ],
-        encoding: "utf8",
-      });
-
-      await csvWriter.writeRecords(results);
-      syncLogger.info(`Saved sync results to CSV: ${csvFilePath}`);
-      return csvFilePath;
-    } catch (error) {
-      syncLogger.error("Failed to save sync results to CSV:", error);
-      throw error;
-    }
-  }
-
-  /**
-   * Save teacher sync results to CSV file
-   * @param {Array} results - Array of sync results
-   * @param {string} type - Type of sync
-   * @returns {Promise<string>} Path to created CSV file
-   */
-  static async saveTeacherSyncResultsToCSV(results, type) {
-    try {
-      const csvFilePath = this.getCSVFileName(type);
-
-      const csvWriter = createObjectCsvWriter({
-        path: csvFilePath,
-        header: [
-          { id: "MaGiangVien", title: "Mã Giảng Viên" },
-          { id: "HoDem", title: "Họ Đệm" },
-          { id: "Ten", title: "Tên" },
-          { id: "Email", title: "Email" },
-          { id: "TrangThai", title: "Trạng Thái" },
-          { id: "LoiChiTiet", title: "Lỗi Chi Tiết" },
-          { id: "ThoiGian", title: "Thời Gian" },
-        ],
-        encoding: "utf8",
-      });
-
-      await csvWriter.writeRecords(results);
-      syncLogger.info(`Saved teacher sync results to CSV: ${csvFilePath}`);
-      return csvFilePath;
-    } catch (error) {
-      syncLogger.error("Failed to save teacher sync results to CSV:", error);
-      throw error;
-    }
-  }
-
-  /**
-   * Save course sync results to CSV file
-   * @param {Array} results - Array of sync results
-   * @param {string} type - Type of sync
-   * @returns {Promise<string>} Path to created CSV file
-   */
-  static async saveCourseSyncResultsToCSV(results, type) {
-    try {
-      const csvFilePath = this.getCSVFileName(type);
-
-      const csvWriter = createObjectCsvWriter({
-        path: csvFilePath,
-        header: [
-          { id: "MaLopHocPhan", title: "Mã Lớp Học Phần" },
-          { id: "TenLopHoc", title: "Tên Lớp Học" },
-          { id: "TenMonHoc", title: "Tên Môn Học" },
-          { id: "TenDot", title: "Tên Đợt" },
-          { id: "HanhDong", title: "Hành Động" },
-          { id: "TrangThai", title: "Trạng Thái" },
-          { id: "LoiChiTiet", title: "Lỗi Chi Tiết" },
-          { id: "ThoiGian", title: "Thời Gian" },
-        ],
-        encoding: "utf8",
-      });
-
-      await csvWriter.writeRecords(results);
-      syncLogger.info(`Saved course sync results to CSV: ${csvFilePath}`);
-      return csvFilePath;
-    } catch (error) {
-      syncLogger.error("Failed to save course sync results to CSV:", error);
-      throw error;
-    }
-  }
-
-  /**
-   * Save student enrollment sync results to CSV file
-   * @param {Array} results - Array of sync results
-   * @param {string} type - Type of sync
-   * @returns {Promise<string>} Path to created CSV file
-   */
-  static async saveEnrollmentSyncResultsToCSV(results, type) {
-    try {
-      const csvFilePath = this.getCSVFileName(type);
-
-      const csvWriter = createObjectCsvWriter({
-        path: csvFilePath,
-        header: [
-          { id: "MaSinhVien", title: "Mã Sinh Viên" },
-          { id: "HoTenSinhVien", title: "Họ Tên Sinh Viên" },
-          { id: "MaLopHocPhan", title: "Mã Lớp Học Phần" },
-          { id: "TenMonHoc", title: "Tên Môn Học" },
-          { id: "TenLopHoc", title: "Tên Lớp Học" },
-          { id: "TenDot", title: "Tên Đợt" },
-          { id: "TrangThai", title: "Trạng Thái" },
-          { id: "LoiChiTiet", title: "Lỗi Chi Tiết" },
-          { id: "ThoiGian", title: "Thời Gian" },
-        ],
-        encoding: "utf8",
-      });
-
-      await csvWriter.writeRecords(results);
-      syncLogger.info(`Saved enrollment sync results to CSV: ${csvFilePath}`);
-      return csvFilePath;
-    } catch (error) {
-      syncLogger.error("Failed to save enrollment sync results to CSV:", error);
-      throw error;
-    }
-  }
-
-  /**
-   * Convert Vietnamese characters to ASCII equivalent
-   * @param {string} str - String to convert
-   * @returns {string} ASCII string
-   */
+  // Bỏ dấu tiếng Việt để tên file an toàn trên mọi hệ điều hành
   static removeVietnameseTones(str) {
     if (!str) return "";
     str = str.replace(/à|á|ạ|ả|ã|â|ầ|ấ|ậ|ẩ|ẫ|ă|ằ|ắ|ặ|ẳ|ẵ/g, "a");
@@ -185,102 +56,62 @@ class CSVHelper {
     return str;
   }
 
-  /**
-   * Save enrollment results for a single course to CSV file
-   * @param {Array} results - Array of enrollment results for a course
-   * @param {string} courseCode - Course code for filename
-   * @param {string} courseName - Course name for logging
-   * @returns {Promise<string>} Path to created CSV file
-   */
-  static async saveCourseEnrollmentToCSV(results, courseCode, courseName) {
+  static safeName(value) {
+    return this.removeVietnameseTones(String(value ?? ""))
+      .replace(/\s+/g, "_")
+      .replace(/[^a-zA-Z0-9_-]/g, "_")
+      .slice(0, 60);
+  }
+
+  static timestamp() {
+    return new Date().toISOString().replace(/[:.]/g, "-").slice(0, -5);
+  }
+
+  static ensureDir(dir) {
+    if (!fs.existsSync(dir)) {
+      fs.mkdirSync(dir, { recursive: true });
+    }
+    return dir;
+  }
+
+  // Ghi mảng object ra CSV. Cột suy ra từ khóa của bản ghi đầu tiên.
+  // subDir: thư mục con trong logs/csv (ví dụ "enrollments")
+  static async saveRows(rows, fileName, subDir = "") {
     try {
-      const timestamp = new Date()
-        .toISOString()
-        .replace(/[:.]/g, "-")
-        .slice(0, -5);
-      const csvDir = path.join(__dirname, "../../logs/csv/enrollments");
-      if (!fs.existsSync(csvDir)) {
-        fs.mkdirSync(csvDir, { recursive: true });
+      if (!rows || rows.length === 0) {
+        syncLogger.info(`Không có dữ liệu để ghi CSV: ${fileName}`);
+        return null;
       }
-      
-      // Convert Vietnamese to ASCII first, then sanitize
-      const asciiCourseName = this.removeVietnameseTones(courseName);
-      const safeCourseCode = courseCode.replace(/[^a-zA-Z0-9_-]/g, "_");
-      const safeCourseName = asciiCourseName.replace(/[^a-zA-Z0-9_-]/g, "_").replace(/\s+/g, "_");
-      const csvFilePath = path.join(csvDir, `${safeCourseCode}_${safeCourseName}_${timestamp}.csv`);
-      
-      syncLogger.info(`Creating CSV for: ${courseCode} - ${courseName}`);
-      syncLogger.info(`Safe filename: ${safeCourseCode}_${safeCourseName}_${timestamp}.csv`);
+
+      const dir = this.ensureDir(
+        subDir ? path.join(CSV_ROOT, subDir) : CSV_ROOT
+      );
+      const filePath = path.join(dir, `${fileName}_${this.timestamp()}.csv`);
+
+      const header = Object.keys(rows[0]).map((key) => ({
+        id: key,
+        title: COLUMN_TITLES[key] || key,
+      }));
 
       const csvWriter = createObjectCsvWriter({
-        path: csvFilePath,
-        header: [
-          { id: "MaSinhVien", title: "Mã Sinh Viên" },
-          { id: "HoTenSinhVien", title: "Họ Tên Sinh Viên" },
-          { id: "TrangThai", title: "Trạng Thái" },
-          { id: "LoiChiTiet", title: "Lỗi Chi Tiết" },
-          { id: "ThoiGian", title: "Thời Gian" },
-        ],
+        path: filePath,
+        header,
         encoding: "utf8",
       });
 
-      await csvWriter.writeRecords(results);
-      syncLogger.info(`Saved enrollment for course ${courseCode} to CSV: ${csvFilePath}`);
-      return csvFilePath;
+      await csvWriter.writeRecords(rows);
+      syncLogger.info(`Đã ghi ${rows.length} dòng ra CSV: ${filePath}`);
+      return filePath;
     } catch (error) {
-      syncLogger.error(`Failed to save enrollment for course ${courseCode} to CSV:`, error);
-      throw error;
+      syncLogger.error(`Ghi CSV ${fileName} thất bại:`, error);
+      return null; // Lỗi ghi CSV không được làm hỏng cả tác vụ đồng bộ
     }
   }
 
-  /**
-   * Save teacher enrollment results for a single course to CSV file
-   * @param {Array} results - Array of teacher enrollment results for a course
-   * @param {string} courseCode - Course code for filename
-   * @param {string} courseName - Course name for logging
-   * @returns {Promise<string>} Path to created CSV file
-   */
-  static async saveTeacherCourseEnrollmentToCSV(results, courseCode, courseName) {
-    try {
-      const timestamp = new Date()
-        .toISOString()
-        .replace(/[:.]/g, "-")
-        .slice(0, -5);
-      const csvDir = path.join(__dirname, "../../logs/csv/teacher_enrollments");
-      if (!fs.existsSync(csvDir)) {
-        fs.mkdirSync(csvDir, { recursive: true });
-      }
-      
-      // Convert Vietnamese to ASCII first, then sanitize
-      const asciiCourseName = this.removeVietnameseTones(courseName);
-      const safeCourseCode = courseCode.replace(/[^a-zA-Z0-9_-]/g, "_");
-      const safeCourseName = asciiCourseName.replace(/[^a-zA-Z0-9_-]/g, "_").replace(/\s+/g, "_");
-      const csvFilePath = path.join(csvDir, `${safeCourseCode}_${safeCourseName}_${timestamp}.csv`);
-      
-      syncLogger.info(`Creating CSV for teacher enrollment: ${courseCode} - ${courseName}`);
-      syncLogger.info(`Safe filename: ${safeCourseCode}_${safeCourseName}_${timestamp}.csv`);
-
-      const csvWriter = createObjectCsvWriter({
-        path: csvFilePath,
-        header: [
-          { id: "MaGiangVien", title: "Mã Giảng Viên" },
-          { id: "HoTenGiangVien", title: "Họ Tên Giảng Viên" },
-          { id: "LoaiGiangVien", title: "Loại Giảng Viên" },
-          { id: "TrangThai", title: "Trạng Thái" },
-          { id: "HanhDong", title: "Hành Động" },
-          { id: "LoiChiTiet", title: "Lỗi Chi Tiết" },
-          { id: "ThoiGian", title: "Thời Gian" },
-        ],
-        encoding: "utf8",
-      });
-
-      await csvWriter.writeRecords(results);
-      syncLogger.info(`Saved teacher enrollment for course ${courseCode} to CSV: ${csvFilePath}`);
-      return csvFilePath;
-    } catch (error) {
-      syncLogger.error(`Failed to save teacher enrollment for course ${courseCode} to CSV:`, error);
-      throw error;
-    }
+  // Ghi CSV riêng cho từng lớp học phần
+  static async saveCourseRows(rows, courseCode, courseName, subDir) {
+    const fileName = `${this.safeName(courseCode)}_${this.safeName(courseName)}`;
+    return this.saveRows(rows, fileName, subDir);
   }
 }
 

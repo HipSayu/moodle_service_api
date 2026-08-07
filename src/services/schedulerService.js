@@ -1,168 +1,161 @@
 import { CronJob } from 'cron';
 import config from '../config/index.js';
 import { logger, syncLogger } from '../utils/logger.js';
-import syncToMoodleService from '../services/syncToMoodleService.js';
-import syncFromMoodleService from '../services/syncFromMoodleService.js';
+import syncToMoodleService from './syncToMoodleService.js';
+
+const JOB_SYNC_ALL = 'syncAllToMoodle';
 
 class SchedulerService {
   constructor() {
     this.jobs = new Map();
+    this.runningFlags = {};
+    this.lastRun = {};
     this.isRunning = false;
   }
 
-  // Khởi tạo các scheduled jobs
+  // Khởi tạo các scheduled job.
+  // Scheduler không có request nên học kỳ phải lấy từ SYNC_TEN_DOT.
   init() {
     if (!config.sync.enableAutoSync) {
-      logger.info('Auto sync is disabled');
+      logger.info('Auto sync đang tắt (ENABLE_AUTO_SYNC != true)');
+      return;
+    }
+
+    if (!config.sync.tenDot) {
+      logger.warn(
+        'Auto sync đang bật nhưng thiếu SYNC_TEN_DOT trong .env, bỏ qua việc tạo job'
+      );
       return;
     }
 
     try {
-      // Job đồng bộ full data từ SQL Server sang Moodle (chạy mỗi 24 giờ lúc 2h sáng)
-      const syncAllToMoodleJob = new CronJob(
-        '0 0 2 * * *',
-        () => this.runSyncAllToMoodle(),
+      const job = new CronJob(
+        config.sync.cronTime,
+        () => this.runSyncAll(),
         null,
         false,
-        'Asia/Ho_Chi_Minh'
+        config.sync.timezone
       );
 
-      this.jobs.set('syncAllToMoodle', syncAllToMoodleJob);
+      this.jobs.set(JOB_SYNC_ALL, job);
 
-      logger.info('Scheduler jobs initialized', {
-        syncAllToMoodleTime: '2:00 AM daily'
+      logger.info('Đã khởi tạo scheduler job', {
+        job: JOB_SYNC_ALL,
+        cronTime: config.sync.cronTime,
+        tenDot: config.sync.tenDot,
+        timezone: config.sync.timezone
       });
     } catch (error) {
-      logger.error('Failed to initialize scheduler:', error);
+      logger.error('Khởi tạo scheduler thất bại:', error);
       throw error;
     }
   }
 
-  // Bắt đầu tất cả scheduled jobs
-  async start() {
+  // Bật scheduler. Không chạy sync ngay để tránh block request gọi tới.
+  start() {
     if (this.isRunning) {
-      logger.warn('Scheduler is already running');
-      return;
+      logger.warn('Scheduler đang chạy rồi');
+      return { started: false, reason: 'already running' };
     }
 
-    try {
-      this.jobs.forEach((job, name) => {
-        job.start();
-        logger.info(`Started scheduled job: ${name}`);
-      });
-
-      this.isRunning = true;
-      logger.info('Scheduler started successfully');
-
-      // Chạy sync ngay lập tức khi start
-      if (!this.isCurrentlyRunning('syncAllToMoodle')) {
-        await this.runSyncAllToMoodle();
-      }
-    } catch (error) {
-      logger.error('Failed to start scheduler:', error);
-      throw error;
-    }
-  }
-
-  // Dừng tất cả scheduled jobs
-  stop() {
-    if (!this.isRunning) {
-      logger.warn('Scheduler is not running');
-      return;
+    if (this.jobs.size === 0) {
+      logger.warn('Không có job nào để chạy');
+      return { started: false, reason: 'no jobs configured' };
     }
 
-    try {
-      this.jobs.forEach((job, name) => {
-        job.stop();
-        logger.info(`Stopped scheduled job: ${name}`);
-      });
-
-      this.isRunning = false;
-      logger.info('Scheduler stopped successfully');
-    } catch (error) {
-      logger.error('Failed to stop scheduler:', error);
-      throw error;
-    }
-  }
-
-  // Kiểm tra xem job có đang chạy không
-  isCurrentlyRunning(jobName) {
-    return this.runningFlags && this.runningFlags[jobName] === true;
-  }
-
-  // Set trạng thái chạy của job
-  setRunningFlag(jobName, isRunning) {
-    if (!this.runningFlags) {
-      this.runningFlags = {};
-    }
-    this.runningFlags[jobName] = isRunning;
-  }
-
-  // Gửi thông báo lỗi (có thể extend để gửi email, Slack, etc.)
-  notifyErrors(operation, result) {
-    logger.error(`Errors occurred during ${operation}:`, {
-      operation,
-      result,
-      timestamp: new Date().toISOString()
+    this.jobs.forEach((job, name) => {
+      job.start();
+      logger.info(`Đã bật job: ${name}`);
     });
 
-    // TODO: Implement email/Slack notifications here
-    // Example:
-    // await emailService.sendErrorNotification(operation, result);
-    // await slackService.sendErrorMessage(operation, result);
+    this.isRunning = true;
+    return { started: true, jobs: [...this.jobs.keys()] };
   }
 
-  // Lấy trạng thái của tất cả jobs
-  getJobStatus() {
-    const status = {};
-    
+  stop() {
+    if (!this.isRunning) {
+      logger.warn('Scheduler chưa chạy');
+      return { stopped: false, reason: 'not running' };
+    }
+
     this.jobs.forEach((job, name) => {
-      status[name] = {
-        running: job.running,
-        lastDate: job.lastDate(),
-        nextDate: job.nextDate(),
-        cronTime: job.cronTime.source
+      job.stop();
+      logger.info(`Đã dừng job: ${name}`);
+    });
+
+    this.isRunning = false;
+    return { stopped: true };
+  }
+
+  isCurrentlyRunning(jobName) {
+    return this.runningFlags[jobName] === true;
+  }
+
+  getJobStatus() {
+    const jobs = {};
+
+    this.jobs.forEach((job, name) => {
+      jobs[name] = {
+        cronTime: job.cronTime?.source,
+        nextRun: job.nextDate?.()?.toISO?.() || null,
+        isRunning: this.isCurrentlyRunning(name),
+        lastRun: this.lastRun[name] || null
       };
     });
 
     return {
       schedulerRunning: this.isRunning,
-      jobs: status,
-      runningFlags: this.runningFlags || {}
+      autoSyncEnabled: config.sync.enableAutoSync,
+      tenDot: config.sync.tenDot || null,
+      jobs
     };
   }
 
-  // Chạy một job ngay lập tức
-  async runJobNow(jobName) {
-    switch (jobName) {
-      case 'syncAllToMoodle':
-        return await this.runSyncAllToMoodle();
-      default:
-        throw new Error(`Unknown job: ${jobName}`);
-    }
+  // Tên job hợp lệ, không phụ thuộc vào việc cron job đã được tạo hay chưa
+  hasJob(jobName) {
+    return jobName === JOB_SYNC_ALL;
   }
 
-  // Chạy sync all to Moodle
-  async runSyncAllToMoodle() {
+  knownJobs() {
+    return [JOB_SYNC_ALL];
+  }
+
+  async runJobNow(jobName) {
+    if (!this.hasJob(jobName)) {
+      throw new Error(`Không có job tên "${jobName}"`);
+    }
+    return this.runSyncAll();
+  }
+
+  // Chạy đồng bộ toàn bộ. Chặn chạy chồng nhau.
+  async runSyncAll() {
+    if (this.isCurrentlyRunning(JOB_SYNC_ALL)) {
+      syncLogger.warn('Job đồng bộ toàn bộ đang chạy, bỏ qua lần này');
+      return { skipped: true, reason: 'already running' };
+    }
+
+    if (!config.sync.tenDot) {
+      throw new Error('Thiếu SYNC_TEN_DOT trong .env');
+    }
+
+    this.runningFlags[JOB_SYNC_ALL] = true;
+
     try {
-      if (this.isCurrentlyRunning('syncAllToMoodle')) {
-        logger.warn('Sync all to Moodle is already running');
-        return;
-      }
-
-      this.setRunningFlag('syncAllToMoodle', true);
-      syncLogger.info('Starting scheduled sync all to Moodle');
-
-      const result = await syncToMoodleService.syncAllToMoodleDaily();
-
-      syncLogger.info('Scheduled sync all to Moodle completed successfully', result);
+      syncLogger.info(`Chạy job đồng bộ toàn bộ (đợt ${config.sync.tenDot})`);
+      const result = await syncToMoodleService.syncAll({
+        tenDot: config.sync.tenDot
+      });
+      this.lastRun[JOB_SYNC_ALL] = new Date().toISOString();
+      syncLogger.info('Job đồng bộ toàn bộ hoàn tất', {
+        failed: result.failed,
+        durationMs: result.durationMs
+      });
       return result;
     } catch (error) {
-      syncLogger.error('Scheduled sync all to Moodle failed:', error);
-      this.notifyErrors('syncAllToMoodle', error);
+      syncLogger.error('Job đồng bộ toàn bộ thất bại:', error);
       throw error;
     } finally {
-      this.setRunningFlag('syncAllToMoodle', false);
+      this.runningFlags[JOB_SYNC_ALL] = false;
     }
   }
 }

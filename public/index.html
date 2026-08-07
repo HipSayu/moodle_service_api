@@ -1,0 +1,246 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Moodle Sync — Bảng điều khiển</title>
+  <link rel="stylesheet" href="styles.css">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🔄</text></svg>">
+</head>
+<body>
+
+<header class="topbar">
+  <div class="brand">
+    <span class="brand-mark">⇄</span>
+    <div>
+      <h1>Moodle Sync</h1>
+      <p>SQL Server (EDU_NUCE) → Moodle</p>
+    </div>
+  </div>
+
+  <div class="topbar-right">
+    <label class="field field-inline">
+      <span>Học kỳ (tenDot)</span>
+      <input id="tenDot" type="text" placeholder="HK1 2026-2027" autocomplete="off">
+    </label>
+    <button id="healthBtn" class="btn btn-ghost" type="button">
+      <span id="healthDot" class="status-dot status-unknown"></span>
+      <span id="healthText">Kiểm tra kết nối</span>
+    </button>
+  </div>
+</header>
+
+<nav class="tabs" role="tablist">
+  <button class="tab is-active" data-tab="sync" role="tab">Đồng bộ</button>
+  <button class="tab" data-tab="core" role="tab">Dữ liệu Core</button>
+  <button class="tab" data-tab="moodle" role="tab">Dữ liệu Moodle</button>
+</nav>
+
+<main>
+
+  <!-- ==================== TAB ĐỒNG BỘ ==================== -->
+  <section id="panel-sync" class="panel is-active">
+
+    <div class="notice">
+      Mọi tác vụ đồng bộ đều <strong>bỏ qua đối tượng đã tồn tại</strong> trên Moodle, chạy lại nhiều lần an toàn.
+      Thứ tự khuyến nghị: Khoa/Bộ môn → Sinh viên → Giảng viên → Khóa học → Đăng ký.
+    </div>
+
+    <div class="card-grid">
+
+      <article class="card" data-sync="categories">
+        <header>
+          <h3>Khoa / Bộ môn</h3>
+          <span class="tag">category</span>
+        </header>
+        <p>Tạo cây category trên Moodle từ bảng <code>TMP_DsBoMonKhoa</code>. Không cần học kỳ.</p>
+        <div class="card-actions">
+          <button class="btn btn-primary" data-action="sync" data-path="/api/sync/categories">Đồng bộ</button>
+        </div>
+      </article>
+
+      <article class="card" data-sync="students">
+        <header>
+          <h3>Sinh viên</h3>
+          <span class="tag">user</span>
+        </header>
+        <p>Tạo/cập nhật tài khoản sinh viên. Mật khẩu khởi tạo <code>&lt;MaSinhVien&gt;@Huce</code>, chỉ đặt khi tạo mới.</p>
+        <div class="card-actions">
+          <button class="btn btn-primary" data-action="sync" data-path="/api/sync/students">Toàn bộ đợt</button>
+          <div class="input-group">
+            <input type="text" data-one-input="students" placeholder="Mã sinh viên">
+            <button class="btn" data-action="sync-one" data-path="/api/sync/students" data-key="students">Một SV</button>
+          </div>
+        </div>
+      </article>
+
+      <article class="card" data-sync="teachers">
+        <header>
+          <h3>Giảng viên</h3>
+          <span class="tag">user</span>
+        </header>
+        <p>Tạo/cập nhật tài khoản giảng viên. Mật khẩu khởi tạo <code>Huce@1234</code>, chỉ đặt khi tạo mới.</p>
+        <div class="card-actions">
+          <button class="btn btn-primary" data-action="sync" data-path="/api/sync/teachers">Toàn bộ đợt</button>
+          <div class="input-group">
+            <input type="text" data-one-input="teachers" placeholder="Mã GV hoặc email">
+            <button class="btn" data-action="sync-one" data-path="/api/sync/teachers" data-key="teachers">Một GV</button>
+          </div>
+        </div>
+      </article>
+
+      <article class="card" data-sync="courses">
+        <header>
+          <h3>Khóa học</h3>
+          <span class="tag">course</span>
+        </header>
+        <p>Tạo lớp học phần chưa có kèm các section. Lớp đã tồn tại được bỏ qua, không ghi đè.</p>
+        <div class="card-actions">
+          <button class="btn btn-primary" data-action="sync" data-path="/api/sync/courses">Toàn bộ đợt</button>
+          <div class="input-group">
+            <input type="text" data-one-input="courses" placeholder="Mã lớp học phần">
+            <button class="btn" data-action="sync-one" data-path="/api/sync/courses" data-key="courses">Một lớp</button>
+          </div>
+        </div>
+      </article>
+
+      <article class="card" data-sync="enroll-students">
+        <header>
+          <h3>Sinh viên vào lớp</h3>
+          <span class="tag">enrol · role 5</span>
+        </header>
+        <p>Đăng ký sinh viên vào khóa học tương ứng. Cần chạy đồng bộ Sinh viên và Khóa học trước.</p>
+        <div class="card-actions">
+          <button class="btn btn-primary" data-action="sync" data-path="/api/enrollments/students">Toàn bộ đợt</button>
+          <div class="input-group">
+            <input type="text" data-one-input="enroll-students" placeholder="Mã sinh viên">
+            <button class="btn" data-action="sync-one" data-path="/api/enrollments/students" data-key="enroll-students">Một SV</button>
+          </div>
+        </div>
+      </article>
+
+      <article class="card" data-sync="enroll-teachers">
+        <header>
+          <h3>Giảng viên vào lớp</h3>
+          <span class="tag">enrol · role 3/4</span>
+        </header>
+        <p>Đăng ký giảng viên vào khóa học. Trợ giảng nhận role 4, giảng viên chính role 3.</p>
+        <div class="card-actions">
+          <button class="btn btn-primary" data-action="sync" data-path="/api/enrollments/teachers">Toàn bộ đợt</button>
+          <div class="input-group">
+            <input type="text" data-one-input="enroll-teachers" placeholder="Mã GV hoặc email">
+            <button class="btn" data-action="sync-one" data-path="/api/enrollments/teachers" data-key="enroll-teachers">Một GV</button>
+          </div>
+        </div>
+      </article>
+
+    </div>
+
+    <section class="result-block">
+      <div class="result-head">
+        <h2>Kết quả</h2>
+        <button id="clearResult" class="btn btn-ghost btn-sm" type="button">Xóa</button>
+      </div>
+      <div id="syncResult" class="result-body">
+        <p class="empty">Chưa chạy tác vụ nào.</p>
+      </div>
+    </section>
+
+  </section>
+
+  <!-- ==================== TAB DỮ LIỆU CORE ==================== -->
+  <section id="panel-core" class="panel">
+    <div class="subtabs" id="coreSubtabs"></div>
+
+    <!-- Bộ lọc theo trường, gửi thẳng vào SQL qua danh sách trắng cột -->
+    <div class="filter-builder">
+      <div class="filter-builder-head">
+        <h3>Lọc theo trường</h3>
+        <div>
+          <button id="coreAddFilter" class="btn btn-sm" type="button">+ Thêm điều kiện</button>
+          <button id="coreClearFilters" class="btn btn-ghost btn-sm" type="button">Xóa hết</button>
+        </div>
+      </div>
+      <div id="coreFilterRows" class="filter-rows"></div>
+      <p class="hint" id="coreFilterHint">Không có điều kiện nào — sẽ lấy toàn bộ dữ liệu của học kỳ.</p>
+    </div>
+
+    <div class="toolbar">
+      <label class="inline-label">Sắp xếp
+        <select id="coreSort" class="select"></select>
+      </label>
+      <select id="coreOrder" class="select">
+        <option value="asc">Tăng dần</option>
+        <option value="desc">Giảm dần</option>
+      </select>
+      <label class="inline-label">Số dòng
+        <select id="coreLimit" class="select">
+          <option value="200">200</option>
+          <option value="1000" selected>1.000</option>
+          <option value="5000">5.000</option>
+          <option value="50000">50.000</option>
+        </select>
+      </label>
+      <input id="coreFilterInput" class="filter-input" type="text" placeholder="Lọc nhanh trong kết quả...">
+      <button id="coreLoad" class="btn btn-primary">Tải dữ liệu</button>
+      <button id="coreExport" class="btn btn-ghost">Tải CSV</button>
+      <span id="coreCount" class="count"></span>
+    </div>
+
+    <div id="coreTable" class="table-wrap">
+      <p class="empty">Nhập học kỳ rồi bấm <strong>Tải dữ liệu</strong>.</p>
+    </div>
+  </section>
+
+  <!-- ==================== TAB DỮ LIỆU MOODLE ==================== -->
+  <section id="panel-moodle" class="panel">
+    <div class="subtabs" id="moodleSubtabs">
+      <button class="subtab is-active" data-view="courses">Khóa học</button>
+      <button class="subtab" data-view="users">Người dùng</button>
+      <button class="subtab" data-view="members">Thành viên lớp</button>
+    </div>
+
+    <!-- bộ lọc riêng cho từng view -->
+    <div class="toolbar" id="moodleToolbar">
+      <div class="toolbar-slot" data-for="users">
+        <select id="moodleUserKey" class="select">
+          <option value="auth">auth</option>
+          <option value="idnumber">idnumber</option>
+          <option value="email">email</option>
+          <option value="username">username</option>
+          <option value="firstname">firstname</option>
+          <option value="lastname">lastname</option>
+        </select>
+        <input id="moodleUserValue" class="filter-input" type="text" placeholder="manual" value="manual">
+      </div>
+
+      <div class="toolbar-slot" data-for="members" hidden>
+        <input id="moodleCourseId" class="filter-input filter-sm" type="number" placeholder="Moodle course ID">
+        <select id="moodleRole" class="select">
+          <option value="">Tất cả vai trò</option>
+          <option value="5">Sinh viên (5)</option>
+          <option value="3">Giảng viên chính (3)</option>
+          <option value="4">Trợ giảng (4)</option>
+        </select>
+      </div>
+
+      <input id="moodleFilterInput" class="filter-input" type="text" placeholder="Lọc trong kết quả...">
+      <button id="moodleLoad" class="btn btn-primary">Tải dữ liệu</button>
+      <button id="moodleExport" class="btn btn-ghost">Tải CSV</button>
+      <span id="moodleCount" class="count"></span>
+    </div>
+
+    <p class="hint" id="moodleHint"></p>
+
+    <div id="moodleTable" class="table-wrap">
+      <p class="empty">Bấm <strong>Tải dữ liệu</strong>.</p>
+    </div>
+  </section>
+
+</main>
+
+<div id="toast" class="toast" hidden></div>
+
+<script src="app.js"></script>
+</body>
+</html>

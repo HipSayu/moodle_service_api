@@ -5,6 +5,12 @@ import path from "path";
 import { fileURLToPath } from "url";
 import config from "../config/index.js";
 import { logger, syncLogger } from "../utils/logger.js";
+import { OPERATORS, DEFAULT_OPERATOR, getDataset, listDatasets } from "./datasets.js";
+import { AppError } from "../utils/errorHandler.js";
+
+// Giới hạn số dòng trả về mỗi lần truy vấn dataset
+const DEFAULT_QUERY_LIMIT = 1000;
+const MAX_QUERY_LIMIT = 50000;
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -88,440 +94,336 @@ class DatabaseService {
     }
   }
 
-  // DONE
-  // Lấy danh sách sinh viên
-  async getStudents(lastSyncDate = null) {
-    try {
-      let query = `SELECT DISTINCT sv.MaSinhVien,
-                    sv.HoDem,
-                    sv.Ten,
-                    sv.NguyenQuan,
-                    sv.HoDem + ' ' + sv.Ten AS HoTenSinhVien,
-                    sv.Email,
-                    sv.NgayCapNhat AS DateUpdateSV
-                    FROM dbo.DT_DangKyHocPhan dkhp WITH (NOLOCK)
-                    INNER JOIN dbo.DT_SinhVien sv WITH (NOLOCK) ON sv.Id = dkhp.IDSinhVien
-                    INNER JOIN dbo.TKB_LopHocPhan lhp WITH (NOLOCK) ON lhp.Id = dkhp.IDLopHocPhan
-                    INNER JOIN dbo.TKB_MonHoc mh WITH (NOLOCK) ON mh.Id = lhp.IDMonHoc
-                    INNER JOIN dbo.TKB_LopHoc lhoc WITH (NOLOCK) ON lhoc.Id = mh.IDLopHoc
-                    INNER JOIN dbo.DM_Dot d WITH (NOLOCK) ON lhoc.IDDot = d.Id
-                    WHERE sv.MaSinhVien LIKE '1653965' AND d.TenDot LIKE '%HK1 2026-2027%'
-                  `;
-      const parameters = {};
-      if (lastSyncDate) {
-        query += " AND sv.NgayCapN dhat > @lastSyncDate";
-        parameters.lastSyncDate = lastSyncDate;
-      }
-      const result = await this.executeQuery(query, parameters);
-      return result.recordset;
-    } catch (error) {
-      logger.error("Error getting students:", error);
-      throw error;
+  // ==================== TRUY VẤN DỮ LIỆU ĐÀO TẠO ====================
+  // Mọi điều kiện lọc (học kỳ, mã sinh viên, mã giảng viên, mã lớp học phần)
+  // đều truyền từ ngoài vào, không hardcode trong SQL.
+
+  // Bắt buộc phải có tenDot, tránh việc lỡ quét toàn bộ dữ liệu mọi học kỳ
+  requireTenDot(tenDot) {
+    if (!tenDot || !tenDot.toString().trim()) {
+      throw new AppError("Thiếu tenDot (tên đợt/học kỳ), ví dụ: HK1 2026-2027");
     }
+    return `%${tenDot.toString().trim()}%`;
   }
 
-  // Danh sách Categories, danh sách các bộ môn, khoa
-  // DONE
-  async getCategory(lastSyncDate = null) {
-    try {
-      let query = `
-       SELECT * FROM TMP_DsBoMonKhoa
-      `;
 
-      const parameters = {};
-
-      const result = await this.executeQuery(query, parameters);
-      return result.recordset;
-    } catch (error) {
-      logger.error("Error getting students:", error);
-      throw error;
+  // IDDot cho báo cáo khóa điểm, bắt buộc truyền từ ngoài vào
+  requireIdDot(idDot) {
+    const parsed = parseInt(idDot, 10);
+    if (!Number.isInteger(parsed)) {
+      throw new AppError("Thiếu hoặc sai idDot (ID đợt), ví dụ: 298");
     }
+    return parsed;
   }
 
-  // DONE
-  // Test
-  async getOneStudents(lastSyncDate = null) {
-    try {
-      let query = `
-      SELECT TOP 10 
-        *
-      FROM DT_SinhVien;
+  // ==================== TRUY VẤN DATASET TỔNG QUÁT ====================
+  // Cho phép lọc/sắp xếp theo BẤT KỲ cột nào có trong danh sách trắng của dataset.
+  // Câu gốc được bọc lại: SELECT * FROM (<sql gốc>) q WHERE <bộ lọc>
+  // nên tên cột lọc chính là tên cột đầu ra.
 
-      `;
-      const parameters = {};
-
-      if (lastSyncDate) {
-        query += " AND updated_at > @lastSyncDate";
-        parameters.lastSyncDate = lastSyncDate;
+  // Ép kiểu giá trị lọc theo kiểu cột đã khai báo
+  castFilterValue(value, type) {
+    if (type === "number") {
+      const n = Number(value);
+      if (Number.isNaN(n)) {
+        throw new AppError(`Giá trị "${value}" không phải số`);
       }
-
-      const result = await this.executeQuery(query, parameters);
-      return result.recordset;
-    } catch (error) {
-      logger.error("Error getting students:", error);
-      throw error;
+      return n;
     }
+
+    if (type === "date") {
+      const d = new Date(value);
+      if (Number.isNaN(d.getTime())) {
+        throw new AppError(`Giá trị "${value}" không phải ngày hợp lệ`);
+      }
+      return d;
+    }
+
+    if (type === "bool") {
+      return ["true", "1", "yes"].includes(String(value).toLowerCase());
+    }
+
+    return String(value);
   }
 
-  // Lấy danh sách khóa học
-  // DONE
-  async getCourses(lastSyncDate = null) {
-    try {
-      let query_old = `
-        SELECT mh.TenMonHoc,lhoc.TenLopHoc, d.TenDot, lhp.Id AS IDLopHocPhan, mh.IDToBoMon, lhoc.NgayCapNhat, mh.SoTietThucHanh, mh.SoTietLyThuyet,
-        lhp.MaLopHocPhan
-        FROM dbo.TKB_MonHoc AS mh
-        INNER JOIN dbo.TKB_LopHoc as lhoc ON lhoc.Id = mh.IDLopHoc
-        INNER JOIN dbo.DM_Dot d WITH (NOLOCK) ON lhoc.IDDot = d.Id
-        INNER JOIN  dbo.TKB_LopHocPhan as lhp ON lhp.IDMonHoc= mh.ID
-        WHERE lhoc.TenLopHoc LIKE '67%'  AND d.TenDot LIKE '%HK3 2025-2026%'
-`;
-      let query2 = `
-        SELECT mh.TenMonHoc,lhoc.TenLopHoc, d.TenDot, lhp.Id AS IDLopHocPhan, mh.IDToBoMon, lhoc.NgayCapNhat, mh.SoTietThucHanh, mh.SoTietLyThuyet,
-        lhp.MaLopHocPhan
-        FROM dbo.TKB_MonHoc AS mh
-        INNER JOIN dbo.TKB_LopHoc as lhoc ON lhoc.Id = mh.IDLopHoc
-        INNER JOIN dbo.DM_Dot d WITH (NOLOCK) ON lhoc.IDDot = d.Id
-        INNER JOIN  dbo.TKB_LopHocPhan as lhp ON lhp.IDMonHoc= mh.ID
-        WHERE d.TenDot LIKE '%HK1 2026-2027%'
-`;
-      const parameters = {};
-      if (lastSyncDate) {
-        query2 += `
-          AND lhoc.NgayCapNhat > @lastSyncDate
-        `;
-        parameters.lastSyncDate = lastSyncDate;
+  // Dựng mệnh đề WHERE từ danh sách bộ lọc đã được kiểm tra tên cột
+  buildFilterClause(dataset, filters, parameters) {
+    const clauses = [];
+    let index = 0;
+
+    for (const filter of filters) {
+      const column = dataset.columns.find((c) => c.name === filter.field);
+      if (!column) {
+        throw new AppError(
+          `Không lọc được theo trường "${filter.field}". Trường hợp lệ: ${dataset.columns
+            .map((c) => c.name)
+            .join(", ")}`
+        );
       }
 
-      const result = await this.executeQuery(query2, parameters);
-      return result.recordset;
-    } catch (error) {
-      logger.error("Error getting courses:", error);
-      throw error;
-    }
-  }
-
-  // Lấy MỘT lớp học phần theo mã lớp học phần
-  // tenDot: mặc định lấy theo học kỳ đang dùng ở getCourses, truyền vào để tra học kỳ khác
-  async getOneCourse(maLopHocPhan, tenDot = null) {
-    try {
-      let query = `
-        SELECT mh.TenMonHoc, lhoc.TenLopHoc, d.TenDot, lhp.Id AS IDLopHocPhan, mh.IDToBoMon,
-        lhoc.NgayCapNhat, mh.SoTietThucHanh, mh.SoTietLyThuyet, lhp.MaLopHocPhan
-        FROM dbo.TKB_MonHoc AS mh
-        INNER JOIN dbo.TKB_LopHoc as lhoc ON lhoc.Id = mh.IDLopHoc
-        INNER JOIN dbo.DM_Dot d WITH (NOLOCK) ON lhoc.IDDot = d.Id
-        INNER JOIN dbo.TKB_LopHocPhan as lhp ON lhp.IDMonHoc = mh.ID
-        WHERE lhp.MaLopHocPhan = @maLopHocPhan
-      `;
-      const parameters = { maLopHocPhan };
-
-      if (tenDot) {
-        query += " AND d.TenDot LIKE @tenDot";
-        parameters.tenDot = `%${tenDot}%`;
-      } else {
-        query += " AND d.TenDot LIKE '%HK1 2026-2027%'";
+      const opName = filter.op || DEFAULT_OPERATOR[column.type] || "eq";
+      const operator = OPERATORS[opName];
+      if (!operator) {
+        throw new AppError(
+          `Toán tử "${opName}" không hợp lệ. Toán tử hợp lệ: ${Object.keys(OPERATORS).join(", ")}`
+        );
       }
 
-      const result = await this.executeQuery(query, parameters);
-      return result.recordset;
-    } catch (error) {
-      logger.error("Error getting one course:", error);
-      throw error;
-    }
-  }
+      // Tên cột đã đối chiếu với danh sách trắng nên an toàn khi ghép vào SQL
+      const columnRef = `q.[${column.name}]`;
 
-  // Lấy danh sách giảng Viên
-  // Done
-  async getTeachers(lastSyncDate = null) {
-    try {
-      let query = `
-        SELECT DISTINCT 
-        gv.MaGiangVien AS MaNhanSu, gv.HoDem + ' ' + gv.Ten AS HoTenGiangVien, gv.Email,gv.Ten,gv.NgayCapNhat AS DateUpdateTeacher,gv.HoDem,
-        CASE WHEN lhgv.IsTroGiang = 1 THEN 'Trợ giảng' ELSE 'Giảng viên chính' END AS VaiTro
-        FROM dbo.TKB_LopHocPhan lhp WITH (NOLOCK)
-        INNER JOIN dbo.TKB_DanhSachLopXepLichHoc ds WITH (NOLOCK) ON ds.IDLopHocPhan = lhp.Id
-        INNER JOIN dbo.TKB_LopXepLichHoc lxl WITH (NOLOCK) ON lxl.Id = ds.IDLopXepLichHoc
-        INNER JOIN dbo.TKB_LichHoc lh WITH (NOLOCK) ON lh.IDLopXepLichHoc = lxl.Id
-        INNER JOIN dbo.TKB_LichHocGiangVien lhgv WITH (NOLOCK) ON lhgv.IDLichHoc = lh.Id
-        INNER JOIN dbo.DM_GiangVien gv WITH (NOLOCK) ON gv.Id = lhgv.IDGiangVien
-        INNER JOIN dbo.TKB_MonHoc mh WITH (NOLOCK) ON mh.Id = lhp.IDMonHoc
-        INNER JOIN dbo.TKB_LopHoc lhoc WITH (NOLOCK) ON lhoc.Id = mh.IDLopHoc
-        
-`;
-      const parameters = {};
-
-      if (lastSyncDate) {
-        query += "WHERE gv.NgayCapNhat > @lastSyncDate";
-        parameters.lastSyncDate = lastSyncDate;
-      }
-      const result = await this.executeQuery(query, parameters);
-      return result.recordset;
-    } catch (error) {
-      logger.error("Error getting teachers from HRM_NUCE:", error);
-      throw error;
-    }
-  }
-
-  // Lấy thông tin MỘT giảng viên theo mã giảng viên hoặc email
-  // identifier: MaGiangVien hoặc Email. Không truyền -> dùng giảng viên mặc định để test
-  async getTeachersOne(identifier = null, lastSyncDate = null) {
-    try {
-      let query = `
-        SELECT DISTINCT
-        gv.MaGiangVien AS MaNhanSu, gv.HoDem + ' ' + gv.Ten AS HoTenGiangVien, gv.Email,gv.Ten,gv.NgayCapNhat AS DateUpdateTeacher,gv.HoDem
-        FROM dbo.TKB_LopHocPhan lhp WITH (NOLOCK)
-        INNER JOIN dbo.TKB_DanhSachLopXepLichHoc ds WITH (NOLOCK) ON ds.IDLopHocPhan = lhp.Id
-        INNER JOIN dbo.TKB_LopXepLichHoc lxl WITH (NOLOCK) ON lxl.Id = ds.IDLopXepLichHoc
-        INNER JOIN dbo.TKB_LichHoc lh WITH (NOLOCK) ON lh.IDLopXepLichHoc = lxl.Id
-        INNER JOIN dbo.TKB_LichHocGiangVien lhgv WITH (NOLOCK) ON lhgv.IDLichHoc = lh.Id
-        INNER JOIN dbo.DM_GiangVien gv WITH (NOLOCK) ON gv.Id = lhgv.IDGiangVien
-        INNER JOIN dbo.TKB_MonHoc mh WITH (NOLOCK) ON mh.Id = lhp.IDMonHoc
-        INNER JOIN dbo.TKB_LopHoc lhoc WITH (NOLOCK) ON lhoc.Id = mh.IDLopHoc
-`;
-      const parameters = {};
-
-      if (identifier) {
-        query += " WHERE (gv.MaGiangVien = @identifier OR gv.Email = @identifier)";
-        parameters.identifier = identifier;
-      } else {
-        query += " WHERE gv.Email LIKE 'hoanttm@huce.edu.vn'";
+      // IS NULL / IS NOT NULL không cần tham số
+      if (operator.needsValue === false) {
+        clauses.push(operator.sql(columnRef));
+        continue;
       }
 
-      if (lastSyncDate) {
-        query += " AND gv.NgayCapNhat > @lastSyncDate";
-        parameters.lastSyncDate = lastSyncDate;
+      if (filter.value === null || filter.value === undefined || filter.value === "") {
+        throw new AppError(`Bộ lọc "${filter.field}" thiếu giá trị`);
       }
-      const result = await this.executeQuery(query, parameters);
-      return result.recordset;
-    } catch (error) {
-      logger.error("Error getting one teacher:", error);
-      throw error;
-    }
-  }
 
-  // Lấy danh sách đăng ký khóa học
-  // DONE
-  async getStudentCourseEnrollments(courseId = null) {
-    try {
-      let query = `
-         SELECT DISTINCT
-          lhp.MaLopHocPhan,
-          lhoc.TenLopHoc,
-          mh.TenMonHoc,
-          sv.MaSinhVien,
-          sv.HoDem + ' ' + sv.Ten AS HoTenSinhVien,
-          sv.Email
-          FROM dbo.DT_DangKyHocPhan dkhp WITH (NOLOCK)
-          INNER JOIN dbo.DT_SinhVien sv WITH (NOLOCK) ON sv.Id = dkhp.IDSinhVien
-          INNER JOIN dbo.TKB_LopHocPhan lhp WITH (NOLOCK) ON lhp.Id = dkhp.IDLopHocPhan
-          INNER JOIN dbo.TKB_MonHoc mh WITH (NOLOCK) ON mh.Id = lhp.IDMonHoc
-          INNER JOIN dbo.TKB_LopHoc lhoc WITH (NOLOCK) ON lhoc.Id = mh.IDLopHoc
-          INNER JOIN dbo.DM_Dot d WITH (NOLOCK) ON lhoc.IDDot = d.Id
-          WHERE dkhp.IDTrangThaiDangKy IN (1,2,3) AND d.TenDot LIKE '%HK1 2026-2027%'
-      `;
-      const parameters = {};
-      if (courseId) {
-        query += "AND lhp.MaLopHocPhan = @courseId";
-        parameters.courseId = courseId;
-      }
-      const result = await this.executeQuery(query, parameters);
-      return result.recordset;
-    } catch (error) {
-      logger.error("Error getting course enrollments:", error);
-      throw error;
-    }
-  }
+      // IN nhận danh sách phân tách bởi dấu phẩy
+      if (operator.multi) {
+        const values = String(filter.value)
+          .split(",")
+          .map((v) => v.trim())
+          .filter(Boolean);
 
-  // Lấy danh sách lớp học phần của MỘT sinh viên (theo mã sinh viên hoặc email)
-  // identifier: MaSinhVien hoặc Email. Không truyền -> dùng sinh viên mặc định để test
-  async getOneStudentCourseEnrollments(identifier = null) {
-    try {
-      let query = `
-        SELECT DISTINCT
-          lhp.MaLopHocPhan,
-          lhoc.TenLopHoc,
-          mh.TenMonHoc,
-          d.TenDot,
-          sv.MaSinhVien,
-          sv.HoDem + ' ' + sv.Ten AS HoTenSinhVien,
-          sv.Email
-          FROM dbo.DT_DangKyHocPhan dkhp WITH (NOLOCK)
-          INNER JOIN dbo.DT_SinhVien sv WITH (NOLOCK) ON sv.Id = dkhp.IDSinhVien
-          INNER JOIN dbo.TKB_LopHocPhan lhp WITH (NOLOCK) ON lhp.Id = dkhp.IDLopHocPhan
-          INNER JOIN dbo.TKB_MonHoc mh WITH (NOLOCK) ON mh.Id = lhp.IDMonHoc
-          INNER JOIN dbo.TKB_LopHoc lhoc WITH (NOLOCK) ON lhoc.Id = mh.IDLopHoc
-          INNER JOIN dbo.DM_Dot d WITH (NOLOCK) ON lhoc.IDDot = d.Id
-          WHERE dkhp.IDTrangThaiDangKy IN (1,2,3) AND d.TenDot LIKE '%HK1 2026-2027%'
-      `;
-      const parameters = {};
-      if (identifier) {
-        query += " AND (sv.MaSinhVien = @identifier OR sv.Email = @identifier)";
-        parameters.identifier = identifier;
-      } else {
-        query += " AND sv.MaSinhVien = '1653965'";
-      }
-      const result = await this.executeQuery(query, parameters);
-      return result.recordset;
-    } catch (error) {
-      logger.error("Error getting course enrollments:", error);
-      throw error;
-    }
-  }
-
-  async getTeacherCourseEnrollments(courseId = null, lastSyncDate = null) {
-    try {
-      let query = `
-             SELECT DISTINCT lhp.MaLopHocPhan, lhoc.TenLopHoc, mh.TenMonHoc, d.TenDot,
-      gv.MaGiangVien, gv.HoDem + ' ' + gv.Ten AS HoTenGiangVien, gv.Email, lhgv.IsTroGiang
-       FROM dbo.TKB_LopHocPhan lhp WITH (NOLOCK)
-       INNER JOIN dbo.TKB_DanhSachLopXepLichHoc ds WITH (NOLOCK) ON ds.IDLopHocPhan = lhp.Id
-       INNER JOIN dbo.TKB_LopXepLichHoc lxl WITH (NOLOCK) ON lxl.Id = ds.IDLopXepLichHoc
-       INNER JOIN dbo.TKB_LichHoc lh WITH (NOLOCK) ON lh.IDLopXepLichHoc = lxl.Id
-       INNER JOIN dbo.TKB_LichHocGiangVien lhgv WITH (NOLOCK) ON lhgv.IDLichHoc = lh.Id
-       INNER JOIN dbo.DM_GiangVien gv WITH (NOLOCK) ON gv.Id = lhgv.IDGiangVien
-       INNER JOIN dbo.TKB_MonHoc mh WITH (NOLOCK) ON mh.Id = lhp.IDMonHoc
-       INNER JOIN dbo.TKB_LopHoc lhoc WITH (NOLOCK) ON lhoc.Id = mh.IDLopHoc
-       INNER JOIN dbo.DM_Dot d WITH (NOLOCK) ON lhoc.IDDot = d.Id
-       WHERE   d.TenDot LIKE '%HK1 2026-2027%'
-      `;
-      const parameters = {};
-      if (courseId) {
-        query += " AND lhp.MaLopHocPhan = @courseId";
-        parameters.courseId = courseId;
-      }
-      if (lastSyncDate) {
-        query += " AND gv.NgayCapNhat > @lastSyncDate";
-        parameters.lastSyncDate = lastSyncDate;
-      }
-      const result = await this.executeQuery(query, parameters);
-      return result.recordset;
-    } catch (error) {
-      logger.error("Error getting teacher course enrollments:", error);
-      throw error;
-    }
-  }
-
-  // Lấy danh sách lớp học phần của MỘT giảng viên (theo mã giảng viên hoặc email)
-  // identifier: MaGiangVien hoặc Email. Không truyền -> dùng giảng viên mặc định để test
-  async getTeacherCourseEnrollmentsOne(identifier = null, lastSyncDate = null) {
-    try {
-      let query = `
-             SELECT DISTINCT lhp.MaLopHocPhan, lhoc.TenLopHoc, mh.TenMonHoc, d.TenDot,
-      gv.MaGiangVien, gv.HoDem + ' ' + gv.Ten AS HoTenGiangVien, gv.Email, lhgv.IsTroGiang
-       FROM dbo.TKB_LopHocPhan lhp WITH (NOLOCK)
-       INNER JOIN dbo.TKB_DanhSachLopXepLichHoc ds WITH (NOLOCK) ON ds.IDLopHocPhan = lhp.Id
-       INNER JOIN dbo.TKB_LopXepLichHoc lxl WITH (NOLOCK) ON lxl.Id = ds.IDLopXepLichHoc
-       INNER JOIN dbo.TKB_LichHoc lh WITH (NOLOCK) ON lh.IDLopXepLichHoc = lxl.Id
-       INNER JOIN dbo.TKB_LichHocGiangVien lhgv WITH (NOLOCK) ON lhgv.IDLichHoc = lh.Id
-       INNER JOIN dbo.DM_GiangVien gv WITH (NOLOCK) ON gv.Id = lhgv.IDGiangVien
-       INNER JOIN dbo.TKB_MonHoc mh WITH (NOLOCK) ON mh.Id = lhp.IDMonHoc
-       INNER JOIN dbo.TKB_LopHoc lhoc WITH (NOLOCK) ON lhoc.Id = mh.IDLopHoc
-       INNER JOIN dbo.DM_Dot d WITH (NOLOCK) ON lhoc.IDDot = d.Id
-       WHERE d.TenDot LIKE '%HK1 2026-2027%'
-      `;
-      const parameters = {};
-      if (identifier) {
-        query += " AND (gv.MaGiangVien = @identifier OR gv.Email = @identifier)";
-        parameters.identifier = identifier;
-      } else {
-        query += " AND gv.MaGiangVien LIKE '%01025%'";
-      }
-      if (lastSyncDate) {
-        query += " AND gv.NgayCapNhat > @lastSyncDate";
-        parameters.lastSyncDate = lastSyncDate;
-      }
-      const result = await this.executeQuery(query, parameters);
-      return result.recordset;
-    } catch (error) {
-      logger.error("Error getting teacher course enrollments:", error);
-      throw error;
-    }
-  }
-
-  async getGrades(lastSyncDate = null) {
-    try {
-      let query = `SELECT kq.IDSinhVien, 
-                    sv.MaSinhVien,
-                    sv.HoDem + ' '+sv.Ten as HoVaTen,
-                    kq.Id AS IDKetQuaHocTap, 
-                    kq.DiemTongKet, mh.TenMonHoc, 
-                    mh.MaMonHoc, 
-                    mh.Id AS IDMonHoc,
-                    lh.TenLopHoc, 
-                    lhp.Id AS IdLopHocPhan,
-                    lhp.MaLopHocPhan,
-                    kq.NgayCapNhat
-                  FROM dbo.TKB_LopHocPhan AS lhp 
-                  INNER JOIN dbo.DT_DangKyHocPhan AS dk ON lhp.Id = dk.IDLopHocPhan 
-                  INNER JOIN dbo.TKB_MonHoc AS mh ON lhp.IDMonHoc = mh.Id 
-                  INNER JOIN dbo.TKB_LopHoc AS lh ON mh.IDLopHoc = lh.Id 
-                  INNER JOIN dbo.DT_KetQuaHocTapMonHoc AS kq ON kq.IDLopHocPhan = lhp.Id AND kq.IDSinhVien = dk.IDSinhVien
-                  INNER JOIN dbo.DT_SinhVien AS sv ON kq.IDSinhVien = sv.Id
-                  WHERE (dk.IDTrangThaiDangKy IN (1, 2, 3)) AND lh.TenLopHoc LIKE '67'
-`;
-      const parameters = {};
-
-      if (lastSyncDate) {
-        query += " AND gv.NgayCapNhat > @lastSyncDate";
-        parameters.lastSyncDate = lastSyncDate;
-      }
-      const result = await this.executeQuery(query, parameters);
-      return result.recordset;
-    } catch (error) {
-      logger.error("Error getting teachers from HRM_NUCE:", error);
-      throw error;
-    }
-  }
-
-  // Cập nhật điểm từ Moodle
-  async updateGrades(grades) {
-    try {
-      const transaction = new sql.Transaction(this.pool);
-      await transaction.begin();
-
-      try {
-        for (const grade of grades) {
-          const request = new sql.Request(transaction);
-
-          const query = `
-           SELECT kq.IDSinhVien, 
-	sv.MaSinhVien,
-	sv.HoDem + ' '+sv.Ten as HoVaTen,
-	kq.Id AS IDKetQuaHocTap, 
-	kq.DiemTongKet, mh.TenMonHoc, 
-	mh.MaMonHoc, 
-	mh.Id AS IDMonHoc,
-	lh.TenLopHoc, 
-	lhp.Id AS IdLopHocPhan,
-	kq.NgayCapNhat
-FROM dbo.TKB_LopHocPhan AS lhp 
-INNER JOIN dbo.DT_DangKyHocPhan AS dk ON lhp.Id = dk.IDLopHocPhan 
-INNER JOIN dbo.TKB_MonHoc AS mh ON lhp.IDMonHoc = mh.Id 
-INNER JOIN dbo.TKB_LopHoc AS lh ON mh.IDLopHoc = lh.Id 
-INNER JOIN dbo.DT_KetQuaHocTapMonHoc AS kq ON kq.IDLopHocPhan = lhp.Id AND kq.IDSinhVien = dk.IDSinhVien
-INNER JOIN dbo.DT_SinhVien AS sv ON kq.IDSinhVien = sv.Id
-WHERE (dk.IDTrangThaiDangKy IN (1, 2, 3)) AND lh.TenLopHoc LIKE '66CS2'
-          `;
-
-          await request.query(query);
+        if (values.length === 0) {
+          throw new AppError(`Bộ lọc "${filter.field}" thiếu giá trị`);
         }
 
-        await transaction.commit();
-        logger.info(`Updated ${grades.length} grades successfully`);
-        return { success: true, count: grades.length };
-      } catch (error) {
-        await transaction.rollback();
-        throw error;
+        const names = values.map((v) => {
+          const name = `f${index++}`;
+          parameters[name] = this.castFilterValue(v, column.type);
+          return `@${name}`;
+        });
+
+        clauses.push(`${columnRef} IN (${names.join(", ")})`);
+        continue;
       }
-    } catch (error) {
-      logger.error("Error updating grades:", error);
-      throw error;
+
+      const name = `f${index++}`;
+      const raw = this.castFilterValue(filter.value, column.type);
+      parameters[name] = operator.wrap ? operator.wrap(raw) : raw;
+      clauses.push(operator.sql(columnRef, `@${name}`));
     }
+
+    return clauses.length ? ` WHERE ${clauses.join(" AND ")}` : "";
   }
 
-  async exportLockedGradeAuditReport() {
+  /**
+   * Truy vấn một dataset với bộ lọc động.
+   * @param {string} name    tên dataset
+   * @param {object} options { tenDot, filters, sort, order, limit, offset }
+   *   filters: [{ field, op, value }]
+   * @returns {object} { items, total, returned, limit, offset, sort, order }
+   */
+  async queryDataset(name, options = {}) {
+    const dataset = getDataset(name);
+    if (!dataset) {
+      throw new AppError(
+        `Không có dataset "${name}". Dataset hợp lệ: ${listDatasets()
+          .map((d) => d.name)
+          .join(", ")}`
+      );
+    }
+
+    const {
+      tenDot = null,
+      filters = [],
+      sort = null,
+      order = "asc",
+      limit = DEFAULT_QUERY_LIMIT,
+      offset = 0,
+    } = options;
+
+    const parameters = {};
+    if (dataset.requireTenDot) {
+      parameters.tenDot = this.requireTenDot(tenDot);
+    }
+
+    const where = this.buildFilterClause(dataset, filters, parameters);
+
+    // Cột sắp xếp cũng phải nằm trong danh sách trắng
+    const sortColumn = sort
+      ? dataset.columns.find((c) => c.name === sort)
+      : dataset.columns.find((c) => c.name === dataset.defaultSort) || dataset.columns[0];
+
+    if (sort && !sortColumn) {
+      throw new AppError(`Không sắp xếp được theo trường "${sort}"`);
+    }
+
+    const direction = String(order).toLowerCase() === "desc" ? "DESC" : "ASC";
+    const safeLimit = Math.min(
+      Math.max(parseInt(limit, 10) || DEFAULT_QUERY_LIMIT, 1),
+      MAX_QUERY_LIMIT
+    );
+    const safeOffset = Math.max(parseInt(offset, 10) || 0, 0);
+
+    const inner = `SELECT * FROM (${dataset.sql}) q${where}`;
+
+    // Đếm tổng số dòng khớp bộ lọc trước khi phân trang
+    const countResult = await this.executeQuery(
+      `SELECT COUNT(*) AS total FROM (${inner}) c`,
+      parameters
+    );
+    const total = countResult.recordset[0]?.total ?? 0;
+
+    const pageResult = await this.executeQuery(
+      `${inner} ORDER BY q.[${sortColumn.name}] ${direction} OFFSET ${safeOffset} ROWS FETCH NEXT ${safeLimit} ROWS ONLY`,
+      parameters
+    );
+
+    return {
+      items: pageResult.recordset,
+      total,
+      returned: pageResult.recordset.length,
+      limit: safeLimit,
+      offset: safeOffset,
+      sort: sortColumn.name,
+      order: direction.toLowerCase(),
+    };
+  }
+
+  // Lấy toàn bộ dòng khớp bộ lọc, dùng cho các tác vụ đồng bộ (không phân trang)
+  async queryDatasetAll(name, options = {}) {
+    const first = await this.queryDataset(name, { ...options, limit: MAX_QUERY_LIMIT, offset: 0 });
+
+    if (first.total <= first.returned) {
+      return first.items;
+    }
+
+    // Vượt quá MAX_QUERY_LIMIT thì lấy tiếp các trang còn lại
+    const items = [...first.items];
+    let offset = first.returned;
+
+    while (offset < first.total) {
+      const next = await this.queryDataset(name, {
+        ...options,
+        limit: MAX_QUERY_LIMIT,
+        offset,
+      });
+      if (next.returned === 0) break;
+      items.push(...next.items);
+      offset += next.returned;
+    }
+
+    return items;
+  }
+
+  // ==================== WRAPPER CHO TÁC VỤ ĐỒNG BỘ ====================
+  // Các hàm dưới đây là lối tắt quen thuộc cho service đồng bộ,
+  // bên trong vẫn dùng chung queryDatasetAll ở trên.
+
+  buildFilters(map) {
+    return Object.entries(map)
+      .filter(([, spec]) => spec.value !== null && spec.value !== undefined && spec.value !== "")
+      .map(([field, spec]) => ({ field, op: spec.op || "eq", value: spec.value }));
+  }
+
+  async getStudents({ tenDot, maSinhVien = null } = {}) {
+    return this.queryDatasetAll("students", {
+      tenDot,
+      filters: this.buildFilters({ MaSinhVien: { value: maSinhVien } }),
+    });
+  }
+
+  async getTeachers({ tenDot, maGiangVien = null } = {}) {
+    // Cho phép truyền mã hoặc email nên tra cả hai cột
+    if (!maGiangVien) {
+      return this.queryDatasetAll("teachers", { tenDot });
+    }
+
+    const byCode = await this.queryDatasetAll("teachers", {
+      tenDot,
+      filters: [{ field: "MaNhanSu", op: "eq", value: maGiangVien }],
+    });
+    if (byCode.length > 0) return byCode;
+
+    return this.queryDatasetAll("teachers", {
+      tenDot,
+      filters: [{ field: "Email", op: "eq", value: maGiangVien }],
+    });
+  }
+
+  async getCourses({ tenDot, maLopHocPhan = null } = {}) {
+    return this.queryDatasetAll("courses", {
+      tenDot,
+      filters: this.buildFilters({ MaLopHocPhan: { value: maLopHocPhan } }),
+    });
+  }
+
+  async getStudentEnrollments({ tenDot, maSinhVien = null, maLopHocPhan = null } = {}) {
+    if (maSinhVien) {
+      const byCode = await this.queryDatasetAll("student-enrollments", {
+        tenDot,
+        filters: this.buildFilters({
+          MaSinhVien: { value: maSinhVien },
+          MaLopHocPhan: { value: maLopHocPhan },
+        }),
+      });
+      if (byCode.length > 0) return byCode;
+
+      return this.queryDatasetAll("student-enrollments", {
+        tenDot,
+        filters: this.buildFilters({
+          Email: { value: maSinhVien },
+          MaLopHocPhan: { value: maLopHocPhan },
+        }),
+      });
+    }
+
+    return this.queryDatasetAll("student-enrollments", {
+      tenDot,
+      filters: this.buildFilters({ MaLopHocPhan: { value: maLopHocPhan } }),
+    });
+  }
+
+  async getTeacherEnrollments({ tenDot, maGiangVien = null, maLopHocPhan = null } = {}) {
+    if (maGiangVien) {
+      const byCode = await this.queryDatasetAll("teacher-enrollments", {
+        tenDot,
+        filters: this.buildFilters({
+          MaGiangVien: { value: maGiangVien },
+          MaLopHocPhan: { value: maLopHocPhan },
+        }),
+      });
+      if (byCode.length > 0) return byCode;
+
+      return this.queryDatasetAll("teacher-enrollments", {
+        tenDot,
+        filters: this.buildFilters({
+          Email: { value: maGiangVien },
+          MaLopHocPhan: { value: maLopHocPhan },
+        }),
+      });
+    }
+
+    return this.queryDatasetAll("teacher-enrollments", {
+      tenDot,
+      filters: this.buildFilters({ MaLopHocPhan: { value: maLopHocPhan } }),
+    });
+  }
+
+  async getGrades({ tenDot, maLopHocPhan = null, tenLopHoc = null, maSinhVien = null } = {}) {
+    return this.queryDatasetAll("grades", {
+      tenDot,
+      filters: this.buildFilters({
+        MaLopHocPhan: { value: maLopHocPhan },
+        TenLopHoc: { value: tenLopHoc, op: "contains" },
+        MaSinhVien: { value: maSinhVien },
+      }),
+    });
+  }
+
+  async getCategories() {
+    return this.queryDatasetAll("categories", {});
+  }
+
+  async exportLockedGradeAuditReport(idDot) {
     try {
+      idDot = this.requireIdDot(idDot);
       const query = `WITH LichThi AS (
       SELECT
         d.MaLopHocPhan,
@@ -532,7 +434,7 @@ WHERE (dk.IDTrangThaiDangKy IN (1, 2, 3)) AND lh.TenLopHoc LIKE '66CS2'
           ORDER BY d.NgayThi DESC
         ) AS rn
       FROM View_LichThiTrongDanhSachThiKetThuc d
-      WHERE d.IDDot = 298
+      WHERE d.IDDot = @idDot
     ),
     CTE AS (
       SELECT 
@@ -557,7 +459,7 @@ WHERE (dk.IDTrangThaiDangKy IN (1, 2, 3)) AND lh.TenLopHoc LIKE '66CS2'
       JOIN View_TKB_LopHocPhan b ON a.IDLopHocPhan = b.Id
       JOIN dbo.View_TKB_LopHocPhanGiangVien lhpvg WITH (NOLOCK) 
         ON lhpvg.MaLopHocPhan = b.MaLopHocPhan
-        AND lhpvg.IDDot = 298
+        AND lhpvg.IDDot = @idDot
       JOIN dbo.DM_GiangVien gv WITH (NOLOCK) 
         ON gv.Id = lhpvg.IDGiangVien
       JOIN HRM_NUCE.dbo.NS_NhanSu c ON a.NguoiTao = c.IDNhanSu
@@ -566,9 +468,9 @@ WHERE (dk.IDTrangThaiDangKy IN (1, 2, 3)) AND lh.TenLopHoc LIKE '66CS2'
       LEFT JOIN View_Khoa k 
         ON k.Id = gv.IDKhoa
       LEFT JOIN LichThi lt ON lt.MaLopHocPhan = b.MaLopHocPhan AND lt.rn = 1
-      LEFT JOIN View_LichThiTrongDanhSachThiKetThuc dtk ON dtk.MaLopHocPhan = b.MaLopHocPhan AND dtk.IDDot = 298
+      LEFT JOIN View_LichThiTrongDanhSachThiKetThuc dtk ON dtk.MaLopHocPhan = b.MaLopHocPhan AND dtk.IDDot = @idDot
       WHERE 
-        b.IDDot = 298
+        b.IDDot = @idDot
          AND (
            lt.NgayThi IS NULL
            OR DATEDIFF(day, lt.NgayThi, a.NgayTao) >= 14
@@ -578,7 +480,7 @@ WHERE (dk.IDTrangThaiDangKy IN (1, 2, 3)) AND lh.TenLopHoc LIKE '66CS2'
     FROM CTE
     WHERE rn = 1;`;
 
-      const result = await this.executeQuery(query);
+      const result = await this.executeQuery(query, { idDot });
       const records = result.recordset || [];
 
       // Build merged-class mapping by reproducing the #tmp3 logic inline (no temp table dependency)
@@ -600,7 +502,7 @@ WHERE (dk.IDTrangThaiDangKy IN (1, 2, 3)) AND lh.TenLopHoc LIKE '66CS2'
           FROM [EDU_NUCE].[dbo].View_TKB_LichHocGiangVien a
           LEFT JOIN [EDU_NUCE].[dbo].View_TKB_Lophocphan b
             ON a.MaLopHocPhan = b.MaLopHocPhan AND a.IDDot = b.IDDot
-          WHERE a.IDDot = 298 AND a.IsHocBu != 1
+          WHERE a.IDDot = @idDot AND a.IsHocBu != 1
         ),
         LichTrungLap AS (
           SELECT 
@@ -611,7 +513,7 @@ WHERE (dk.IDTrangThaiDangKy IN (1, 2, 3)) AND lh.TenLopHoc LIKE '66CS2'
             STRING_AGG(MaLopHocPhan, ',') WITHIN GROUP (ORDER BY MaLopHocPhan) AS DanhSachMaLopHocPhan,
             STRING_AGG(TenLopHoc, ',') WITHIN GROUP (ORDER BY MaLopHocPhan) AS DanhSachTenLopHoc
           FROM tmp2
-          WHERE IDDot = 298 AND IsTamNgung = 0
+          WHERE IDDot = @idDot AND IsTamNgung = 0
           GROUP BY 
             MaMonHoc,
             MaGiangVien,
@@ -635,7 +537,7 @@ WHERE (dk.IDTrangThaiDangKy IN (1, 2, 3)) AND lh.TenLopHoc LIKE '66CS2'
         WHERE rn = 1;
       `;
 
-      const mappingResult = await this.executeQuery(mappingQuery);
+      const mappingResult = await this.executeQuery(mappingQuery, { idDot });
 
       const classMergeMap = (() => {
         if (!mappingResult || !mappingResult.recordset) return null;
@@ -761,8 +663,9 @@ WHERE (dk.IDTrangThaiDangKy IN (1, 2, 3)) AND lh.TenLopHoc LIKE '66CS2'
     }
   }
 
-  async exportLockedGradeAuditReportNoMerge() {
+  async exportLockedGradeAuditReportNoMerge(idDot) {
     try {
+      idDot = this.requireIdDot(idDot);
       const query = `WITH LichThi AS (
       SELECT
         d.MaLopHocPhan,
@@ -773,7 +676,7 @@ WHERE (dk.IDTrangThaiDangKy IN (1, 2, 3)) AND lh.TenLopHoc LIKE '66CS2'
           ORDER BY d.NgayThi DESC
         ) AS rn
       FROM View_LichThiTrongDanhSachThiKetThuc d
-      WHERE d.IDDot = 298
+      WHERE d.IDDot = @idDot
     ),
     CTE AS (
       SELECT 
@@ -798,7 +701,7 @@ WHERE (dk.IDTrangThaiDangKy IN (1, 2, 3)) AND lh.TenLopHoc LIKE '66CS2'
       JOIN View_TKB_LopHocPhan b ON a.IDLopHocPhan = b.Id
       JOIN dbo.View_TKB_LopHocPhanGiangVien lhpvg WITH (NOLOCK) 
         ON lhpvg.MaLopHocPhan = b.MaLopHocPhan
-        AND lhpvg.IDDot = 298
+        AND lhpvg.IDDot = @idDot
       JOIN dbo.DM_GiangVien gv WITH (NOLOCK) 
         ON gv.Id = lhpvg.IDGiangVien
       JOIN HRM_NUCE.dbo.NS_NhanSu c ON a.NguoiTao = c.IDNhanSu
@@ -807,9 +710,9 @@ WHERE (dk.IDTrangThaiDangKy IN (1, 2, 3)) AND lh.TenLopHoc LIKE '66CS2'
       LEFT JOIN View_Khoa k 
         ON k.Id = gv.IDKhoa
       LEFT JOIN LichThi lt ON lt.MaLopHocPhan = b.MaLopHocPhan AND lt.rn = 1
-      LEFT JOIN View_LichThiTrongDanhSachThiKetThuc dtk ON dtk.MaLopHocPhan = b.MaLopHocPhan AND dtk.IDDot = 298
+      LEFT JOIN View_LichThiTrongDanhSachThiKetThuc dtk ON dtk.MaLopHocPhan = b.MaLopHocPhan AND dtk.IDDot = @idDot
       WHERE 
-        b.IDDot = 298
+        b.IDDot = @idDot
          AND (
            lt.NgayThi IS NULL
            OR DATEDIFF(day, lt.NgayThi, a.NgayTao) >= 14
@@ -819,7 +722,7 @@ WHERE (dk.IDTrangThaiDangKy IN (1, 2, 3)) AND lh.TenLopHoc LIKE '66CS2'
     FROM CTE
     WHERE rn = 1;`;
 
-      const result = await this.executeQuery(query);
+      const result = await this.executeQuery(query, { idDot });
       const records = result.recordset || [];
 
       // Move NopMuon to the end of each row for clearer Excel ordering
@@ -884,8 +787,9 @@ WHERE (dk.IDTrangThaiDangKy IN (1, 2, 3)) AND lh.TenLopHoc LIKE '66CS2'
     }
   }
 
-  async exportLockedGradeAuditReportLate() {
+  async exportLockedGradeAuditReportLate(idDot) {
     try {
+      idDot = this.requireIdDot(idDot);
       const query = `WITH LichThi AS (
       SELECT
         d.MaLopHocPhan,
@@ -896,7 +800,7 @@ WHERE (dk.IDTrangThaiDangKy IN (1, 2, 3)) AND lh.TenLopHoc LIKE '66CS2'
           ORDER BY d.NgayThi DESC
         ) AS rn
       FROM View_LichThiTrongDanhSachThiKetThuc d
-      WHERE d.IDDot = 298
+      WHERE d.IDDot = @idDot
     ),
     CTE AS (
       SELECT 
@@ -928,7 +832,7 @@ WHERE (dk.IDTrangThaiDangKy IN (1, 2, 3)) AND lh.TenLopHoc LIKE '66CS2'
       JOIN View_TKB_LopHocPhan b ON a.IDLopHocPhan = b.Id
       JOIN dbo.View_TKB_LopHocPhanGiangVien lhpvg WITH (NOLOCK) 
         ON lhpvg.MaLopHocPhan = b.MaLopHocPhan
-        AND lhpvg.IDDot = 298
+        AND lhpvg.IDDot = @idDot
       JOIN dbo.DM_GiangVien gv WITH (NOLOCK) 
         ON gv.Id = lhpvg.IDGiangVien
       JOIN HRM_NUCE.dbo.NS_NhanSu c ON a.NguoiTao = c.IDNhanSu
@@ -937,15 +841,15 @@ WHERE (dk.IDTrangThaiDangKy IN (1, 2, 3)) AND lh.TenLopHoc LIKE '66CS2'
       LEFT JOIN View_Khoa k 
         ON k.Id = gv.IDKhoa
       LEFT JOIN LichThi lt ON lt.MaLopHocPhan = b.MaLopHocPhan AND lt.rn = 1
-      LEFT JOIN View_LichThiTrongDanhSachThiKetThuc dtk ON dtk.MaLopHocPhan = b.MaLopHocPhan AND dtk.IDDot = 298
+      LEFT JOIN View_LichThiTrongDanhSachThiKetThuc dtk ON dtk.MaLopHocPhan = b.MaLopHocPhan AND dtk.IDDot = @idDot
       WHERE 
-        b.IDDot = 298
+        b.IDDot = @idDot
     )
     SELECT *
     FROM CTE
     WHERE rn = 1;`;
 
-      const result = await this.executeQuery(query);
+      const result = await this.executeQuery(query, { idDot });
       const records = result.recordset || [];
 
       // Build merged-class mapping by reproducing the #tmp3 logic inline (no temp table dependency)
@@ -967,7 +871,7 @@ WHERE (dk.IDTrangThaiDangKy IN (1, 2, 3)) AND lh.TenLopHoc LIKE '66CS2'
           FROM [EDU_NUCE].[dbo].View_TKB_LichHocGiangVien a
           LEFT JOIN [EDU_NUCE].[dbo].View_TKB_Lophocphan b
             ON a.MaLopHocPhan = b.MaLopHocPhan AND a.IDDot = b.IDDot
-          WHERE a.IDDot = 298 AND a.IsHocBu != 1
+          WHERE a.IDDot = @idDot AND a.IsHocBu != 1
         ),
         LichTrungLap AS (
           SELECT 
@@ -978,7 +882,7 @@ WHERE (dk.IDTrangThaiDangKy IN (1, 2, 3)) AND lh.TenLopHoc LIKE '66CS2'
             STRING_AGG(MaLopHocPhan, ',') WITHIN GROUP (ORDER BY MaLopHocPhan) AS DanhSachMaLopHocPhan,
             STRING_AGG(TenLopHoc, ',') WITHIN GROUP (ORDER BY MaLopHocPhan) AS DanhSachTenLopHoc
           FROM tmp2
-          WHERE IDDot = 298 AND IsTamNgung = 0
+          WHERE IDDot = @idDot AND IsTamNgung = 0
           GROUP BY 
             MaMonHoc,
             MaGiangVien,
@@ -1002,7 +906,7 @@ WHERE (dk.IDTrangThaiDangKy IN (1, 2, 3)) AND lh.TenLopHoc LIKE '66CS2'
         WHERE rn = 1;
       `;
 
-      const mappingResult = await this.executeQuery(mappingQuery);
+      const mappingResult = await this.executeQuery(mappingQuery, { idDot });
 
       const classMergeMap = (() => {
         if (!mappingResult || !mappingResult.recordset) return null;
@@ -1138,8 +1042,9 @@ WHERE (dk.IDTrangThaiDangKy IN (1, 2, 3)) AND lh.TenLopHoc LIKE '66CS2'
     }
   }
 
-  async exportLockedGradeAuditReportLateNoMerge() {
+  async exportLockedGradeAuditReportLateNoMerge(idDot) {
     try {
+      idDot = this.requireIdDot(idDot);
       const query = `WITH LichThi AS (
       SELECT
         d.IDLopHocPhan,
@@ -1151,7 +1056,7 @@ WHERE (dk.IDTrangThaiDangKy IN (1, 2, 3)) AND lh.TenLopHoc LIKE '66CS2'
           ORDER BY d.NgayThi DESC
         ) AS rn
       FROM View_LichThiTrongDanhSachThiKetThuc d
-      WHERE d.IDDot = 298
+      WHERE d.IDDot = @idDot
     ),
 
     SourceKD AS (
@@ -1184,7 +1089,7 @@ WHERE (dk.IDTrangThaiDangKy IN (1, 2, 3)) AND lh.TenLopHoc LIKE '66CS2'
       INNER JOIN dbo.View_TKB_LopHocPhan lhp ON lhp.Id = kd.IDLopHocPhan
       INNER JOIN dbo.HT_Tracking t ON t.PrimaryKey = kd.Id AND t.TableName = 'DT_KhoaDiem'
       LEFT JOIN dbo.View_NhanSu ns ON ns.Id = t.NguoiTao
-      WHERE lhp.IDDot = 298
+      WHERE lhp.IDDot = @idDot
         AND ((SELECT TOP 1 x.value FROM dbo.Fn_Split((SELECT TOP 1 x.value FROM dbo.Fn_Split(t.Value,';') x WHERE x.idx = 4),':') x WHERE x.idx = 1) = ''
              OR kd.Nhom = (SELECT TOP 1 x.value FROM dbo.Fn_Split((SELECT TOP 1 x.value FROM dbo.Fn_Split(t.Value,';') x WHERE x.idx = 4),':') x WHERE x.idx = 1))
     ),
@@ -1260,7 +1165,7 @@ WHERE (dk.IDTrangThaiDangKy IN (1, 2, 3)) AND lh.TenLopHoc LIKE '66CS2'
       JOIN dbo.DM_GiangVien gv WITH (NOLOCK)
         ON gv.Id = lhpvg.IDGiangVien
       WHERE lhpvg.MaLopHocPhan = b.MaLopHocPhan
-        AND lhpvg.IDDot = 298
+        AND lhpvg.IDDot = @idDot
     ) AS teacherAgg
 
     LEFT JOIN HRM_NUCE.dbo.NS_NhanSu nsHr
@@ -1272,14 +1177,14 @@ WHERE (dk.IDTrangThaiDangKy IN (1, 2, 3)) AND lh.TenLopHoc LIKE '66CS2'
     LEFT JOIN View_Khoa k
       ON k.Id = teacherAgg.IDKhoa
 
-    WHERE b.IDDot = 298
+    WHERE b.IDDot = @idDot
 )
 
 SELECT *
 FROM CTE
 WHERE rn = 1;`;
 
-      const result = await this.executeQuery(query);
+      const result = await this.executeQuery(query, { idDot });
       const records = result.recordset || [];
 
       // Move NopMuon to the end of each row so the column is last in Excel

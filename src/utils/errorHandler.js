@@ -1,102 +1,99 @@
 import { logger } from './logger.js';
 
-// Class để xử lý lỗi
+// Lỗi do request sai (thiếu tham số, trường không hợp lệ, giá trị sai kiểu...).
+// Mặc định 400 vì đây là lỗi phía người gọi, không phải lỗi máy chủ.
 class AppError extends Error {
-  constructor(message, statusCode, isOperational = true) {
+  constructor(message, statusCode = 400) {
     super(message);
     this.statusCode = statusCode;
-    this.isOperational = isOperational;
-    this.timestamp = new Date().toISOString();
-
+    this.isOperational = true;
     Error.captureStackTrace(this, this.constructor);
   }
 }
 
-// Middleware xử lý lỗi cho Express
-const errorHandler = (err, req, res, next) => {
-  let error = { ...err };
-  error.message = err.message;
+// Suy ra mã HTTP từ loại lỗi
+const resolveStatus = (err) => {
+  if (err.statusCode) return err.statusCode;
 
-  // Log lỗi
-  logger.error('Error occurred:', {
-    message: error.message,
-    stack: error.stack,
+  // Thiếu tham số bắt buộc do người gọi -> 400
+  if (err.message?.startsWith('Thiếu')) return 400;
+
+  // Lỗi kết nối / xác thực SQL Server
+  if (['ELOGIN', 'ETIMEOUT', 'ESOCKET', 'ECONNCLOSED'].includes(err.code)) return 503;
+
+  // Moodle trả lỗi nghiệp vụ
+  if (err.message?.includes('Moodle API Error')) return 502;
+
+  // Lỗi HTTP khi gọi Moodle
+  if (err.response) return 502;
+
+  return 500;
+};
+
+const errorHandler = (err, req, res, next) => {
+  const status = resolveStatus(err);
+
+  // Lỗi do request sai thì chỉ cần một dòng, không cần stack trace
+  const logPayload = {
+    message: err.message,
+    status,
     url: req.originalUrl,
     method: req.method,
-    ip: req.ip,
-    timestamp: new Date().toISOString()
-  });
+    ip: req.ip
+  };
 
-  // Lỗi validation MongoDB
-  if (err.name === 'ValidationError') {
-    const message = Object.values(err.errors).map(val => val.message);
-    error = new AppError(message, 400);
+  if (status >= 500) {
+    logPayload.stack = err.stack;
+    logger.error('Request lỗi:', logPayload);
+  } else {
+    logger.warn('Request không hợp lệ:', logPayload);
   }
 
-  // Lỗi SQL Server
-  if (err.code === 'ELOGIN') {
-    error = new AppError('Database authentication failed', 500);
-  }
-
-  if (err.code === 'ETIMEOUT') {
-    error = new AppError('Database connection timeout', 500);
-  }
-
-  // Lỗi Moodle API
-  if (err.message && err.message.includes('Moodle API Error')) {
-    error = new AppError(err.message, 400);
-  }
-
-  // Lỗi axios
-  if (err.response) {
-    error = new AppError(`External API Error: ${err.response.status}`, 502);
-  }
-
-  res.status(error.statusCode || 500).json({
+  res.status(status).json({
     success: false,
-    error: error.message || 'Server Error',
+    message: err.message || 'Lỗi máy chủ',
+    data: null,
     timestamp: new Date().toISOString()
   });
 };
 
-// Handler cho Promise rejection không được bắt
+// Không tắt tiến trình: một promise lỗi lẻ không được giết cả job đồng bộ đang chạy
 const handleUnhandledRejection = () => {
-  process.on('unhandledRejection', (err, promise) => {
-    logger.error('Unhandled Promise Rejection:', err);
-    process.exit(1);
+  process.on('unhandledRejection', (reason) => {
+    logger.error('Unhandled Promise Rejection:', reason);
   });
 };
 
-// Handler cho Exception không được bắt
+// Exception không bắt được thì trạng thái tiến trình không còn tin cậy -> thoát
+// để process manager (pm2/systemd) khởi động lại.
 const handleUncaughtException = () => {
   process.on('uncaughtException', (err) => {
-    logger.error('Uncaught Exception:', err);
+    logger.error('Uncaught Exception, tiến trình sẽ thoát:', err);
     process.exit(1);
   });
 };
 
-// Hàm wrapper cho async functions
-const asyncHandler = (fn) => (req, res, next) => {
+// Bọc handler async để lỗi rơi về errorHandler thay vì treo request
+const asyncHandler = (fn) => (req, res, next) =>
   Promise.resolve(fn(req, res, next)).catch(next);
-};
 
-// Hàm retry cho các operations có thể fail
+// Thử lại thao tác có thể lỗi tạm thời, giãn cách tăng dần
 const retryOperation = async (operation, maxRetries = 3, delay = 1000) => {
   let lastError;
-  
+
   for (let i = 0; i < maxRetries; i++) {
     try {
       return await operation();
     } catch (error) {
       lastError = error;
-      logger.warn(`Operation failed, attempt ${i + 1}/${maxRetries}:`, error.message);
-      
+      logger.warn(`Thao tác lỗi, lần thử ${i + 1}/${maxRetries}: ${error.message}`);
+
       if (i < maxRetries - 1) {
-        await new Promise(resolve => setTimeout(resolve, delay * Math.pow(2, i)));
+        await new Promise((resolve) => setTimeout(resolve, delay * Math.pow(2, i)));
       }
     }
   }
-  
+
   throw lastError;
 };
 

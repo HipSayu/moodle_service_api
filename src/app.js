@@ -1,15 +1,19 @@
 import express from 'express';
+import path from 'path';
+import { fileURLToPath } from 'url';
 import config from './config/index.js';
 import { logger } from './utils/logger.js';
-import { 
-  errorHandler, 
-  handleUnhandledRejection, 
-  handleUncaughtException 
+import {
+  errorHandler,
+  handleUnhandledRejection,
+  handleUncaughtException
 } from './utils/errorHandler.js';
-import apiRoutes from './routes/api.js';
+import apiRoutes from './routes/index.js';
 import schedulerService from './services/schedulerService.js';
 import databaseService from './services/databaseService.js';
 
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const PUBLIC_DIR = path.join(__dirname, '../public');
 
 class App {
   constructor() {
@@ -17,217 +21,142 @@ class App {
     this.server = null;
   }
 
-  // Khởi tạo middleware
   initializeMiddleware() {
-    // Body parser
     this.app.use(express.json({ limit: '10mb' }));
     this.app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
-    // Request logging
+    // Log mỗi request kèm thời gian xử lý
     this.app.use((req, res, next) => {
-      logger.info(`${req.method} ${req.path}`, {
-        ip: req.ip,
-        userAgent: req.get('User-Agent'),
-        timestamp: new Date().toISOString()
+      const startedAt = Date.now();
+      res.on('finish', () => {
+        logger.info(`${req.method} ${req.originalUrl} ${res.statusCode}`, {
+          durationMs: Date.now() - startedAt,
+          ip: req.ip
+        });
       });
       next();
     });
+  }
 
-    // Health check route
-    this.app.get('/', (req, res) => {
+  initializeRoutes() {
+    // Giao diện quản trị, truy cập ở http://localhost:<port>/
+    this.app.use(express.static(PUBLIC_DIR));
+
+    // Thông tin service
+    this.app.get('/api', (req, res) => {
       res.json({
+        success: true,
         message: 'Moodle SQL Server Sync Service',
-        version: '1.0.0',
-        status: 'running',
+        data: {
+          version: '2.0.0',
+          environment: config.nodeEnv,
+          apiPrefix: '/api'
+        },
         timestamp: new Date().toISOString()
       });
     });
 
-    // API routes
     this.app.use('/api', apiRoutes);
 
-    // Scheduler status route
-    this.app.get('/scheduler/status', (req, res) => {
-      const status = schedulerService.getJobStatus();
-      res.json({
-        success: true,
-        data: status
-      });
-    });
-
-    // Manual job trigger routes
-    this.app.post('/scheduler/run/:jobName', async (req, res) => {
-      try {
-        const { jobName } = req.params;
-        await schedulerService.runJobNow(jobName);
-        res.json({
-          success: true,
-          message: `Job ${jobName} executed successfully`
-        });
-      } catch (error) {
-        res.status(400).json({
-          success: false,
-          message: error.message
-        });
-      }
-    });
-
-    // Scheduler control routes
-    this.app.post('/scheduler/start', async (req, res) => {
-      try {
-        await schedulerService.start();
-        res.json({
-          success: true,
-          message: 'Scheduler started successfully'
-        });
-      } catch (error) {
-        res.status(400).json({
-          success: false,
-          message: error.message
-        });
-      }
-    });
-
-    this.app.post('/scheduler/stop', async (req, res) => {
-      try {
-        schedulerService.stop();
-        res.json({
-          success: true,
-          message: 'Scheduler stopped successfully'
-        });
-      } catch (error) {
-        res.status(400).json({
-          success: false,
-          message: error.message
-        });
-      }
-    });
-
-    // 404 handler
-    this.app.use('*', (req, res) => {
+    // 404 cho đường dẫn không tồn tại
+    this.app.use((req, res) => {
       res.status(404).json({
         success: false,
-        message: 'Route not found'
+        message: `Không có endpoint ${req.method} ${req.originalUrl}`,
+        data: null,
+        timestamp: new Date().toISOString()
       });
     });
 
-    // Error handling middleware
+    // Middleware xử lý lỗi phải đăng ký sau cùng
     this.app.use(errorHandler);
   }
 
-  // Khởi tạo database connection
   async initializeDatabase() {
-    try {
-      await databaseService.connect();
-      logger.info('Database connection established');
-    } catch (error) {
-      logger.error('Failed to connect to database:', error);
-      throw error;
-    }
+    await databaseService.connect();
+    logger.info('Đã kết nối SQL Server');
   }
 
-
-  // Khởi tạo scheduler
-  async initializeScheduler() {
+  // Scheduler không phải thành phần bắt buộc, lỗi ở đây không chặn service
+  initializeScheduler() {
     try {
       schedulerService.init();
-      schedulerService.start();
-      logger.info('Scheduler initialized and started');
+      if (config.sync.enableAutoSync) {
+        schedulerService.start();
+      }
     } catch (error) {
-      logger.error('Failed to initialize scheduler:', error);
-      // Không throw error ở đây vì scheduler không phải là critical
+      logger.error('Khởi tạo scheduler thất bại:', error);
     }
   }
 
-  // Khởi tạo error handlers
-  initializeErrorHandlers() {
+  async initialize() {
+    logger.info('Đang khởi tạo ứng dụng...');
+
     handleUnhandledRejection();
     handleUncaughtException();
+
+    this.initializeMiddleware();
+    this.initializeRoutes();
+
+    await this.initializeDatabase();
+    this.initializeScheduler();
+
+    logger.info('Khởi tạo ứng dụng thành công');
   }
 
-  // Khởi tạo ứng dụng
-  async initialize() {
-    try {
-      logger.info('Initializing application...');
-
-      // Initialize middleware
-      this.initializeMiddleware();
-
-      // Initialize error handlers
-      this.initializeErrorHandlers();
-
-      // Initialize database
-      await this.initializeDatabase();
-      
-      // Initialize scheduler
-     // await this.initializeScheduler(); // Tắt tự động đồng bộ
-
-      logger.info('Application initialized successfully');
-    } catch (error) {
-      logger.error('Failed to initialize application:', error);
-      throw error;
-    }
-  }
-
-  // Bắt đầu server
   async start() {
     try {
       await this.initialize();
 
       this.server = this.app.listen(config.port, () => {
-        logger.info(`Server running on port ${config.port}`, {
+        logger.info(`Service chạy ở cổng ${config.port}`, {
           environment: config.nodeEnv,
-          port: config.port,
-          autoSync: config.sync.enableAutoSync
+          autoSync: config.sync.enableAutoSync,
+          tenDot: config.sync.tenDot || null
         });
-        
-        logger.info('Moodle SQL Server Sync Service started successfully');
       });
     } catch (error) {
-      logger.error('Failed to start server:', error);
+      logger.error('Khởi động service thất bại:', error);
       process.exit(1);
     }
   }
 
-  // Dừng server gracefully
   async stop() {
+    logger.info('Đang dừng service...');
+
     try {
-      logger.info('Shutting down server...');
+      schedulerService.stop();
+    } catch {
+      // scheduler chưa chạy thì bỏ qua
+    }
 
-      // Stop scheduler
-      if (schedulerService) {
-        schedulerService.stop();
-      }
-
-      // Close database connection
-      if (databaseService) {
-        await databaseService.disconnect();
-      }
-     
-      // Close server
-      if (this.server) {
-        this.server.close(() => {
-          logger.info('Server stopped');
-          process.exit(0);
-        });
-      }
+    try {
+      await databaseService.disconnect();
     } catch (error) {
-      logger.error('Error during shutdown:', error);
-      process.exit(1);
+      logger.error('Đóng kết nối SQL Server lỗi:', error);
+    }
+
+    if (this.server) {
+      this.server.close(() => {
+        logger.info('Service đã dừng');
+        process.exit(0);
+      });
+
+      // Không chờ mãi nếu còn kết nối treo
+      setTimeout(() => process.exit(0), 10000).unref();
+    } else {
+      process.exit(0);
     }
   }
 
-  // Handle graceful shutdown
   handleShutdown() {
-    process.on('SIGTERM', () => {
-      logger.info('SIGTERM received, shutting down gracefully');
-      this.stop();
-    });
-
-    process.on('SIGINT', () => {
-      logger.info('SIGINT received, shutting down gracefully');
-      this.stop();
+    ['SIGTERM', 'SIGINT'].forEach((signal) => {
+      process.on(signal, () => {
+        logger.info(`Nhận ${signal}, dừng service`);
+        this.stop();
+      });
     });
   }
 }
+
 export default App;

@@ -81,20 +81,21 @@ class MoodleService {
   }
 
   // Cập nhật user trong Moodle
-  // Done
-  async updateUser(userId, userData) {
+  // Chỉ gửi password khi được yêu cầu rõ ràng, tránh reset mật khẩu
+  // của người dùng đã tự đổi mỗi lần chạy đồng bộ
+  async updateUser(userId, userData, { resetPassword = false } = {}) {
     try {
       const updateData = {
         'users[0][id]': userId,
-        // 'users[0][username]': userData.username,
         'users[0][firstname]': userData.first_name,
         'users[0][lastname]': userData.last_name,
-        // 'users[0][email]': userData.email,
         'users[0][auth]': 'manual',
-        'users[0][password]': userData.password,
-        // 'users[0][idnumber]': userData.idnumber,
         'users[0][city]': userData.city || "",
       };
+
+      if (resetPassword && userData.password) {
+        updateData['users[0][password]'] = userData.password;
+      }
 
       await this.callWebService('core_user_update_users', updateData);
       logger.info(`Updated user in Moodle: ID ${userId}`);
@@ -157,10 +158,15 @@ class MoodleService {
     }
   }
 
-  // Lấy danh sách users từ Moodle
-  async getUsers() {
+  // Lấy danh sách users từ Moodle theo tiêu chí tìm kiếm.
+  // Moodle yêu cầu ít nhất một criteria, mặc định lấy user auth=manual
+  // vì đây là các tài khoản do service này tạo ra.
+  async getUsers({ key = 'auth', value = 'manual' } = {}) {
     try {
-      const result = await this.callWebService('core_user_get_users', {});
+      const result = await this.callWebService('core_user_get_users', {
+        'criteria[0][key]': key,
+        'criteria[0][value]': value
+      });
       return result.users || [];
     } catch (error) {
       logger.error('Error getting users:', error);
@@ -524,13 +530,13 @@ class MoodleService {
     }
   }
 
-  // Tạo quiz trong course
+  // Tạo quiz trong course qua plugin local_customws
   async createQuiz(courseId, quizData) {
     try {
       const url = `${this.baseUrl}/webservice/rest/server.php`;
 
       const params = {
-        wstoken: '6287e2aa8d57c5336498da6a129cfbd7',
+        wstoken: this.token,
         wsfunction: 'local_customws_create_quiz',
         moodlewsrestformat: 'json',
         courseid: Number(courseId),
@@ -538,7 +544,11 @@ class MoodleService {
         intro: String(quizData.intro ?? 'Final Exam'),
       };
 
-      const response = await axios.post(url, null, { params, timeout: 60000 });
+      const response = await axios.post(url, null, {
+        params,
+        timeout: 60000,
+        httpsAgent: this.httpsAgent
+      });
       const data = response.data;
 
       if (!data) {
