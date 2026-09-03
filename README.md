@@ -34,6 +34,9 @@ Trang quản trị tĩnh trong `public/`, Express tự phục vụ ở `/`. Khô
 không phụ thuộc thư viện ngoài nên chạy được cả khi máy chủ không có internet.
 
 Ô **Học kỳ (tenDot)** ở thanh trên áp dụng cho mọi thao tác và được nhớ lại giữa các lần mở trang.
+Ô **Khóa** ngay cạnh liệt kê các khóa có lớp trong đợt đó (kèm số lớp học phần); chọn một khóa
+thì các nút "Toàn bộ đợt" và tab Dữ liệu Core chỉ chạy trong phạm vi khóa đó, để chia đợt lớn
+thành K70 / K71... chạy lần lượt. Để trống là chạy cả đợt như trước.
 
 **Tab Đồng bộ** — mỗi nghiệp vụ một thẻ, hai nút: *Toàn bộ đợt* (có hỏi xác nhận) và
 *Một đối tượng* (nhập mã). Khi chạy có bộ đếm giây, mọi nút bị khóa để tránh gọi chồng.
@@ -119,6 +122,45 @@ Mã HTTP:
 | POST | `/api/sync/grades` | Điểm tổng kết → assignment cuối kỳ |
 | POST | `/api/sync/all` | Chạy tuần tự cả 5 bước |
 
+### Chạy theo khóa (K70, K71...)
+
+Mọi tác vụ đồng bộ chạy theo phạm vi *đợt* đều nhận thêm bộ lọc khóa, để chia một đợt
+lớn thành từng khóa chạy lần lượt thay vì chạy hết một lần:
+
+| Tham số | Ý nghĩa |
+|---|---|
+| `idKhoaHoc` | Id khóa, chính xác tuyệt đối — giao diện dùng cách này |
+| `khoaHoc` | Chuỗi tự do: `70`, `K70`, `Khóa 70 (2025)` |
+
+Tên khóa trong `DM_KhoaHoc` không theo chuẩn nào (`Khóa 70 (2025)`, `K71`, `2024-07`)
+nên `khoaHoc` được dò theo thứ tự: trùng đúng tên → cùng số khóa → chứa chuỗi.
+Khớp nhiều khóa hoặc không khớp khóa nào thì trả 400 kèm danh sách khóa của đợt để
+chọn lại — không bao giờ đoán, vì đoán sai là đồng bộ nhầm cả một khóa.
+
+Khóa được lấy từ `TKB_LopHoc.IDKhoaHoc`, tức là **khóa của lớp học chứa môn**, không
+phải khóa ghi trên hồ sơ sinh viên. Nhờ vậy sinh viên học lại ở lớp khóa dưới vẫn được
+tạo tài khoản và ghi danh cùng lớp đó.
+
+Các endpoint chạy đúng một mã (`/sync/students/:maSinhVien`...) bỏ qua bộ lọc khóa để
+khỏi lọc nhầm người thuộc khóa khác.
+
+```bash
+# Xem đợt có những khóa nào, kèm số lớp học phần
+curl -G localhost:3000/api/data/cohorts --data-urlencode 'tenDot=HK1 2025-2026'
+
+# Đồng bộ lần lượt từng khóa
+curl -X POST localhost:3000/api/sync/students -H 'Content-Type: application/json' \
+  -d '{"tenDot":"HK1 2025-2026","khoaHoc":"70"}'
+
+curl -X POST localhost:3000/api/sync/courses -H 'Content-Type: application/json' \
+  -d '{"tenDot":"HK1 2025-2026","idKhoaHoc":47}'
+
+# Cả đợt như trước: bỏ trống khoaHoc/idKhoaHoc
+```
+
+Trên giao diện: chọn **Khóa** ở thanh trên, các nút "Toàn bộ đợt" và tab Dữ liệu Core
+sẽ chạy trong phạm vi khóa đó.
+
 ### Đăng ký vào lớp
 
 | Method | Đường dẫn | Mô tả |
@@ -128,7 +170,7 @@ Mã HTTP:
 | POST | `/api/enrollments/teachers` | Đăng ký toàn bộ giảng viên của đợt |
 | POST | `/api/enrollments/teachers/:maGiangVien` | Một giảng viên vào các lớp của mình |
 
-Body tùy chọn: `maLopHocPhan` để giới hạn trong một lớp.
+Body tùy chọn: `maLopHocPhan` để giới hạn trong một lớp, `khoaHoc`/`idKhoaHoc` để giới hạn trong một khóa.
 Người đã có mặt trong lớp với đúng vai trò sẽ bị bỏ qua.
 
 Vai trò trên Moodle: sinh viên = 5, giảng viên chính = 3, trợ giảng = 4 (`IsTroGiang = 1`).
@@ -142,7 +184,15 @@ Vai trò trên Moodle: sinh viên = 5, giảng viên chính = 3, trợ giảng =
 | GET | `/api/data/:dataset` | Truy vấn dữ liệu |
 
 Tập dữ liệu: `students`, `teachers`, `courses`, `student-enrollments`,
-`teacher-enrollments`, `grades`, `categories`.
+`teacher-enrollments`, `grades`, `cohorts`, `categories`.
+
+`cohorts` liệt kê các khóa có lớp trong đợt kèm số lớp học phần — dùng để biết đợt
+đang chạy những khóa nào trước khi đồng bộ.
+
+Mọi dataset có cờ `khoaHocFilter` (tất cả trừ `cohorts` và `categories`) nhận thêm
+`khoaHoc`/`idKhoaHoc`. Bộ lọc khóa được áp thẳng trong câu truy vấn gốc nên `students`
+và `teachers` vẫn giữ đúng một dòng cho mỗi người; các dataset theo lớp còn hiển thị
+thêm cột `TenKhoaHoc`.
 
 **Cú pháp lọc.** Mỗi trường trong `fields` đều lọc được, viết theo một trong hai cách:
 

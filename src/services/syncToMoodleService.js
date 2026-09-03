@@ -115,6 +115,25 @@ class SyncToMoodleService {
     };
   }
 
+  // Nhãn phạm vi chạy, dùng cho log và thông báo
+  scopeLabel(tenDot, tenKhoaHoc) {
+    return tenKhoaHoc ? `${tenKhoaHoc} - đợt ${tenDot}` : `đợt ${tenDot}`;
+  }
+
+  // Loại dòng trùng theo một khóa định danh.
+  // Một người học/dạy lớp của nhiều khóa sẽ có nhiều dòng sau khi truy vấn
+  // kèm cột khóa, nhưng tài khoản Moodle thì chỉ cần xử lý một lần.
+  uniqueBy(rows, keyFn) {
+    const seen = new Set();
+    return rows.filter((row) => {
+      const key = keyFn(row);
+      if (key === null || key === undefined || key === "") return true;
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+  }
+
   // Gom các dòng đăng ký theo lớp học phần để mỗi lớp chỉ tra Moodle một lần
   groupByCourse(rows) {
     const groups = new Map();
@@ -139,11 +158,16 @@ class SyncToMoodleService {
 
   // Đồng bộ sinh viên sang Moodle.
   // maSinhVien: chỉ đồng bộ 1 sinh viên; bỏ trống thì đồng bộ cả đợt.
-  async syncStudents({ tenDot, maSinhVien = null } = {}) {
-    const scope = maSinhVien ? `sinh viên ${maSinhVien}` : `đợt ${tenDot}`;
+  async syncStudents({ tenDot, maSinhVien = null, idKhoaHoc = null, tenKhoaHoc = null } = {}) {
+    const scope = maSinhVien
+      ? `sinh viên ${maSinhVien}`
+      : this.scopeLabel(tenDot, tenKhoaHoc);
     syncLogger.info(`Bắt đầu đồng bộ sinh viên (${scope})`);
 
-    const students = await databaseService.getStudents({ tenDot, maSinhVien });
+    const students = this.uniqueBy(
+      await databaseService.getStudents({ tenDot, maSinhVien, idKhoaHoc }),
+      (row) => row.MaSinhVien
+    );
 
     if (students.length === 0) {
       syncLogger.warn(`Không tìm thấy sinh viên nào (${scope})`);
@@ -228,11 +252,16 @@ class SyncToMoodleService {
   // ==================== GIẢNG VIÊN ====================
 
   // maGiangVien: mã giảng viên hoặc email; bỏ trống thì đồng bộ cả đợt
-  async syncTeachers({ tenDot, maGiangVien = null } = {}) {
-    const scope = maGiangVien ? `giảng viên ${maGiangVien}` : `đợt ${tenDot}`;
+  async syncTeachers({ tenDot, maGiangVien = null, idKhoaHoc = null, tenKhoaHoc = null } = {}) {
+    const scope = maGiangVien
+      ? `giảng viên ${maGiangVien}`
+      : this.scopeLabel(tenDot, tenKhoaHoc);
     syncLogger.info(`Bắt đầu đồng bộ giảng viên (${scope})`);
 
-    const teachers = await databaseService.getTeachers({ tenDot, maGiangVien });
+    const teachers = this.uniqueBy(
+      await databaseService.getTeachers({ tenDot, maGiangVien, idKhoaHoc }),
+      (row) => row.MaNhanSu
+    );
 
     if (teachers.length === 0) {
       syncLogger.warn(`Không tìm thấy giảng viên nào (${scope})`);
@@ -417,11 +446,13 @@ class SyncToMoodleService {
   // Chỉ TẠO khóa học chưa có trên Moodle. Khóa học đã tồn tại thì bỏ qua,
   // không update để không ghi đè thay đổi thủ công trên Moodle.
   // maLopHocPhan: chỉ đồng bộ 1 lớp; bỏ trống thì đồng bộ cả đợt.
-  async syncCourses({ tenDot, maLopHocPhan = null } = {}) {
-    const scope = maLopHocPhan ? `lớp ${maLopHocPhan}` : `đợt ${tenDot}`;
+  async syncCourses({ tenDot, maLopHocPhan = null, idKhoaHoc = null, tenKhoaHoc = null } = {}) {
+    const scope = maLopHocPhan
+      ? `lớp ${maLopHocPhan}`
+      : this.scopeLabel(tenDot, tenKhoaHoc);
     syncLogger.info(`Bắt đầu đồng bộ khóa học (${scope})`);
 
-    const courses = await databaseService.getCourses({ tenDot, maLopHocPhan });
+    const courses = await databaseService.getCourses({ tenDot, maLopHocPhan, idKhoaHoc });
 
     if (courses.length === 0) {
       syncLogger.warn(`Không tìm thấy lớp học phần nào (${scope})`);
@@ -608,13 +639,15 @@ class SyncToMoodleService {
     tenDot,
     maSinhVien = null,
     maLopHocPhan = null,
+    idKhoaHoc = null,
+    tenKhoaHoc = null,
   } = {}) {
     const filtered = Boolean(maSinhVien || maLopHocPhan);
     const scope = maSinhVien
       ? `sinh viên ${maSinhVien}`
       : maLopHocPhan
         ? `lớp ${maLopHocPhan}`
-        : `đợt ${tenDot}`;
+        : this.scopeLabel(tenDot, tenKhoaHoc);
 
     syncLogger.info(`Bắt đầu đăng ký sinh viên vào lớp (${scope})`);
 
@@ -622,6 +655,7 @@ class SyncToMoodleService {
       tenDot,
       maSinhVien,
       maLopHocPhan,
+      idKhoaHoc,
     });
 
     if (enrollments.length === 0) {
@@ -782,13 +816,15 @@ class SyncToMoodleService {
     tenDot,
     maGiangVien = null,
     maLopHocPhan = null,
+    idKhoaHoc = null,
+    tenKhoaHoc = null,
   } = {}) {
     const filtered = Boolean(maGiangVien || maLopHocPhan);
     const scope = maGiangVien
       ? `giảng viên ${maGiangVien}`
       : maLopHocPhan
         ? `lớp ${maLopHocPhan}`
-        : `đợt ${tenDot}`;
+        : this.scopeLabel(tenDot, tenKhoaHoc);
 
     syncLogger.info(`Bắt đầu đăng ký giảng viên vào lớp (${scope})`);
 
@@ -796,6 +832,7 @@ class SyncToMoodleService {
       tenDot,
       maGiangVien,
       maLopHocPhan,
+      idKhoaHoc,
     });
 
     if (enrollments.length === 0) {
@@ -962,12 +999,14 @@ class SyncToMoodleService {
     maLopHocPhan = null,
     tenLopHoc = null,
     maSinhVien = null,
+    idKhoaHoc = null,
+    tenKhoaHoc = null,
   } = {}) {
     const scope = maLopHocPhan
       ? `lớp ${maLopHocPhan}`
       : tenLopHoc
         ? `lớp học ${tenLopHoc}`
-        : `đợt ${tenDot}`;
+        : this.scopeLabel(tenDot, tenKhoaHoc);
 
     syncLogger.info(`Bắt đầu đồng bộ điểm (${scope})`);
 
@@ -976,6 +1015,7 @@ class SyncToMoodleService {
       maLopHocPhan,
       tenLopHoc,
       maSinhVien,
+      idKhoaHoc,
     });
 
     if (grades.length === 0) {
@@ -1271,16 +1311,18 @@ class SyncToMoodleService {
 
   // Chạy tuần tự: sinh viên -> giảng viên -> khóa học -> đăng ký SV -> đăng ký GV.
   // Một bước lỗi không chặn các bước sau.
-  async syncAll({ tenDot } = {}) {
-    syncLogger.info(`Bắt đầu đồng bộ toàn bộ (đợt ${tenDot})`);
+  async syncAll({ tenDot, idKhoaHoc = null, tenKhoaHoc = null } = {}) {
+    const scope = this.scopeLabel(tenDot, tenKhoaHoc);
+    syncLogger.info(`Bắt đầu đồng bộ toàn bộ (${scope})`);
     const startTime = new Date();
 
+    const args = { tenDot, idKhoaHoc, tenKhoaHoc };
     const steps = [
-      ["students", () => this.syncStudents({ tenDot })],
-      ["teachers", () => this.syncTeachers({ tenDot })],
-      ["courses", () => this.syncCourses({ tenDot })],
-      ["studentEnrollments", () => this.syncStudentEnrollments({ tenDot })],
-      ["teacherEnrollments", () => this.syncTeacherEnrollments({ tenDot })],
+      ["students", () => this.syncStudents(args)],
+      ["teachers", () => this.syncTeachers(args)],
+      ["courses", () => this.syncCourses(args)],
+      ["studentEnrollments", () => this.syncStudentEnrollments(args)],
+      ["teacherEnrollments", () => this.syncTeacherEnrollments(args)],
     ];
 
     const results = {};
@@ -1304,6 +1346,7 @@ class SyncToMoodleService {
 
     return {
       tenDot,
+      khoaHoc: tenKhoaHoc,
       steps: results,
       failed: totalFailed,
       startTime,

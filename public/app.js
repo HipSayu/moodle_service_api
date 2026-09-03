@@ -7,6 +7,7 @@
 
   const PAGE_SIZE = 50;
   const TEN_DOT_KEY = "moodleSync.tenDot";
+  const KHOA_HOC_KEY = "moodleSync.khoaHoc";
 
   // ==================== tiện ích ====================
 
@@ -59,6 +60,23 @@
     return v;
   }
 
+  // Khóa đang chọn ở thanh trên. Rỗng nghĩa là chạy cả đợt.
+  const getKhoaHoc = () => $("#khoaHoc").value.trim();
+
+  const getKhoaHocLabel = () => {
+    const sel = $("#khoaHoc");
+    return sel.value ? sel.selectedOptions[0].dataset.ten || sel.value : "";
+  };
+
+  // Tham số chung của các tác vụ chạy theo phạm vi đợt.
+  // Tác vụ chạy đúng một mã (một SV, một GV, một lớp) không kèm khóa để
+  // khỏi lọc nhầm đối tượng thuộc khóa khác.
+  function scopePayload() {
+    const tenDot = getTenDot();
+    const idKhoaHoc = getKhoaHoc();
+    return idKhoaHoc ? { tenDot, idKhoaHoc } : { tenDot };
+  }
+
   // Gọi API, luôn trả về { ok, status, body }
   async function api(path, options = {}) {
     const res = await fetch(path, options);
@@ -97,6 +115,50 @@
   });
 
   // ==================== health ====================
+
+  // ==================== khóa (K70, K71...) ====================
+
+  // Danh sách khóa có lớp trong đợt đang nhập. Rỗng = chạy cả đợt.
+  async function loadCohorts() {
+    const sel = $("#khoaHoc");
+    const previous = sel.value || localStorage.getItem(KHOA_HOC_KEY) || "";
+    const tenDot = getTenDot();
+
+    sel.innerHTML = '<option value="">Cả đợt</option>';
+    sel.disabled = true;
+
+    if (!tenDot) return;
+
+    try {
+      const { body } = await api(
+        `/api/data/cohorts?tenDot=${encodeURIComponent(tenDot)}&sort=SoLopHocPhan&order=desc&limit=200`
+      );
+      if (!body?.success) return;
+
+      const items = body.data.items || [];
+      sel.innerHTML =
+        '<option value="">Cả đợt</option>' +
+        items
+          .map(
+            (c) =>
+              `<option value="${esc(c.IDKhoaHoc)}" data-ten="${esc(c.TenKhoaHoc)}">` +
+              `${esc(c.TenKhoaHoc)} — ${esc(c.SoLopHocPhan)} LHP</option>`
+          )
+          .join("");
+      sel.disabled = items.length === 0;
+
+      // Giữ khóa đã chọn lần trước nếu đợt này vẫn còn khóa đó
+      if (previous && items.some((c) => String(c.IDKhoaHoc) === String(previous))) {
+        sel.value = previous;
+      }
+    } catch {
+      // Không lấy được danh sách khóa thì vẫn chạy được cả đợt
+    }
+  }
+
+  $("#khoaHoc").addEventListener("change", () =>
+    localStorage.setItem(KHOA_HOC_KEY, getKhoaHoc())
+  );
 
   $("#healthBtn").addEventListener("click", async () => {
     const dot = $("#healthDot");
@@ -566,7 +628,7 @@
   $$('[data-action="sync"]').forEach((btn) => {
     btn.addEventListener("click", () => {
       const path = btn.dataset.path;
-      const title = btn.closest(".card").querySelector("h3").textContent + " — toàn bộ đợt";
+      const name = btn.closest(".card").querySelector("h3").textContent;
 
       // Riêng category không cần học kỳ
       if (path === "/api/sync/categories") {
@@ -576,8 +638,14 @@
       const tenDot = requireTenDot();
       if (!tenDot) return;
 
-      if (!confirm(`Chạy "${title}" cho học kỳ ${tenDot}?\n\nTác vụ này có thể mất nhiều phút.`)) return;
-      runSync(btn, title, path, { tenDot });
+      const khoa = getKhoaHocLabel();
+      const title = khoa ? `${name} — khóa ${khoa}` : `${name} — toàn bộ đợt`;
+      const scope = khoa
+        ? `khóa ${khoa} của học kỳ ${tenDot}`
+        : `học kỳ ${tenDot} — TẤT CẢ các khóa`;
+
+      if (!confirm(`Chạy "${name}" cho ${scope}?\n\nTác vụ này có thể mất nhiều phút.`)) return;
+      runSync(btn, title, path, scopePayload());
     });
   });
 
@@ -777,6 +845,13 @@
       const tenDot = requireTenDot();
       if (!tenDot) return;
       params.push("tenDot=" + encodeURIComponent(tenDot));
+    }
+
+    // Khóa chọn ở thanh trên áp cho cả tab dữ liệu, không chỉ tác vụ đồng bộ
+    const dataset = core.datasets.find((d) => d.name === core.active);
+    const khoa = getKhoaHoc();
+    if (khoa && dataset?.khoaHocFilter) {
+      params.push("idKhoaHoc=" + encodeURIComponent(khoa));
     }
 
     const filterParts = buildFilterQuery();
@@ -1189,8 +1264,11 @@
   $("#tenDot").addEventListener("input", () =>
     localStorage.setItem(TEN_DOT_KEY, getTenDot())
   );
+  // Đổi đợt thì danh sách khóa cũng khác, nạp lại khi rời ô nhập
+  $("#tenDot").addEventListener("change", loadCohorts);
 
   setMoodleView("courses");
   $("#healthBtn").click();
   loadDatasets();
+  loadCohorts();
 })();

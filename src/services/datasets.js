@@ -1,7 +1,8 @@
 // Đăng ký các tập dữ liệu đọc được từ SQL Server.
 //
 // Mỗi dataset khai báo:
-//   - sql(params): câu truy vấn gốc, chỉ nhận tenDot
+//   - sql(params): câu truy vấn gốc, nhận @tenDot và @idKhoaHoc (nếu khoaHocFilter)
+//   - khoaHocFilter: lọc theo khóa (K70, K71...) ngay trong câu gốc, truyền -1 là lấy mọi khóa
 //   - columns: DANH SÁCH TRẮNG các cột được phép lọc/sắp xếp
 //
 // Bộ lọc được áp ở câu bao ngoài (`SELECT * FROM (<sql>) q WHERE ...`) nên
@@ -25,6 +26,7 @@ const STUDENTS_SQL = `
   INNER JOIN dbo.DM_Dot d WITH (NOLOCK) ON lhoc.IDDot = d.Id
   WHERE dkhp.IDTrangThaiDangKy IN (1,2,3)
     AND d.TenDot LIKE @tenDot
+    AND (@idKhoaHoc = -1 OR lhoc.IDKhoaHoc = @idKhoaHoc)
 `;
 
 const TEACHERS_SQL = `
@@ -45,6 +47,7 @@ const TEACHERS_SQL = `
   INNER JOIN dbo.TKB_LopHoc lhoc WITH (NOLOCK) ON lhoc.Id = mh.IDLopHoc
   INNER JOIN dbo.DM_Dot d WITH (NOLOCK) ON lhoc.IDDot = d.Id
   WHERE d.TenDot LIKE @tenDot
+    AND (@idKhoaHoc = -1 OR lhoc.IDKhoaHoc = @idKhoaHoc)
 `;
 
 const COURSES_SQL = `
@@ -57,12 +60,16 @@ const COURSES_SQL = `
     mh.IDToBoMon,
     mh.SoTietLyThuyet,
     mh.SoTietThucHanh,
+    lhoc.IDKhoaHoc,
+    kh.TenKhoaHoc,
     lhoc.NgayCapNhat
   FROM dbo.TKB_MonHoc AS mh WITH (NOLOCK)
   INNER JOIN dbo.TKB_LopHoc AS lhoc WITH (NOLOCK) ON lhoc.Id = mh.IDLopHoc
   INNER JOIN dbo.DM_Dot d WITH (NOLOCK) ON lhoc.IDDot = d.Id
+  LEFT JOIN dbo.DM_KhoaHoc kh WITH (NOLOCK) ON kh.Id = lhoc.IDKhoaHoc
   INNER JOIN dbo.TKB_LopHocPhan AS lhp WITH (NOLOCK) ON lhp.IDMonHoc = mh.Id
   WHERE d.TenDot LIKE @tenDot
+    AND (@idKhoaHoc = -1 OR lhoc.IDKhoaHoc = @idKhoaHoc)
 `;
 
 const STUDENT_ENROLLMENTS_SQL = `
@@ -73,15 +80,19 @@ const STUDENT_ENROLLMENTS_SQL = `
     d.TenDot,
     sv.MaSinhVien,
     sv.HoDem + ' ' + sv.Ten AS HoTenSinhVien,
-    sv.Email
+    sv.Email,
+    lhoc.IDKhoaHoc,
+    kh.TenKhoaHoc
   FROM dbo.DT_DangKyHocPhan dkhp WITH (NOLOCK)
   INNER JOIN dbo.DT_SinhVien sv WITH (NOLOCK) ON sv.Id = dkhp.IDSinhVien
   INNER JOIN dbo.TKB_LopHocPhan lhp WITH (NOLOCK) ON lhp.Id = dkhp.IDLopHocPhan
   INNER JOIN dbo.TKB_MonHoc mh WITH (NOLOCK) ON mh.Id = lhp.IDMonHoc
   INNER JOIN dbo.TKB_LopHoc lhoc WITH (NOLOCK) ON lhoc.Id = mh.IDLopHoc
   INNER JOIN dbo.DM_Dot d WITH (NOLOCK) ON lhoc.IDDot = d.Id
+  LEFT JOIN dbo.DM_KhoaHoc kh WITH (NOLOCK) ON kh.Id = lhoc.IDKhoaHoc
   WHERE dkhp.IDTrangThaiDangKy IN (1,2,3)
     AND d.TenDot LIKE @tenDot
+    AND (@idKhoaHoc = -1 OR lhoc.IDKhoaHoc = @idKhoaHoc)
 `;
 
 const TEACHER_ENROLLMENTS_SQL = `
@@ -93,7 +104,9 @@ const TEACHER_ENROLLMENTS_SQL = `
     gv.MaGiangVien,
     gv.HoDem + ' ' + gv.Ten AS HoTenGiangVien,
     gv.Email,
-    lhgv.IsTroGiang
+    lhgv.IsTroGiang,
+    lhoc.IDKhoaHoc,
+    kh.TenKhoaHoc
   FROM dbo.TKB_LopHocPhan lhp WITH (NOLOCK)
   INNER JOIN dbo.TKB_DanhSachLopXepLichHoc ds WITH (NOLOCK) ON ds.IDLopHocPhan = lhp.Id
   INNER JOIN dbo.TKB_LopXepLichHoc lxl WITH (NOLOCK) ON lxl.Id = ds.IDLopXepLichHoc
@@ -103,7 +116,9 @@ const TEACHER_ENROLLMENTS_SQL = `
   INNER JOIN dbo.TKB_MonHoc mh WITH (NOLOCK) ON mh.Id = lhp.IDMonHoc
   INNER JOIN dbo.TKB_LopHoc lhoc WITH (NOLOCK) ON lhoc.Id = mh.IDLopHoc
   INNER JOIN dbo.DM_Dot d WITH (NOLOCK) ON lhoc.IDDot = d.Id
+  LEFT JOIN dbo.DM_KhoaHoc kh WITH (NOLOCK) ON kh.Id = lhoc.IDKhoaHoc
   WHERE d.TenDot LIKE @tenDot
+    AND (@idKhoaHoc = -1 OR lhoc.IDKhoaHoc = @idKhoaHoc)
 `;
 
 const GRADES_SQL = `
@@ -120,17 +135,38 @@ const GRADES_SQL = `
     kq.Id AS IDKetQuaHocTap,
     mh.Id AS IDMonHoc,
     lhp.Id AS IDLopHocPhan,
+    lhoc.IDKhoaHoc,
+    kh.TenKhoaHoc,
     kq.NgayCapNhat
   FROM dbo.TKB_LopHocPhan AS lhp WITH (NOLOCK)
   INNER JOIN dbo.DT_DangKyHocPhan AS dk WITH (NOLOCK) ON lhp.Id = dk.IDLopHocPhan
   INNER JOIN dbo.TKB_MonHoc AS mh WITH (NOLOCK) ON lhp.IDMonHoc = mh.Id
   INNER JOIN dbo.TKB_LopHoc AS lhoc WITH (NOLOCK) ON mh.IDLopHoc = lhoc.Id
   INNER JOIN dbo.DM_Dot d WITH (NOLOCK) ON lhoc.IDDot = d.Id
+  LEFT JOIN dbo.DM_KhoaHoc kh WITH (NOLOCK) ON kh.Id = lhoc.IDKhoaHoc
   INNER JOIN dbo.DT_KetQuaHocTapMonHoc AS kq WITH (NOLOCK)
     ON kq.IDLopHocPhan = lhp.Id AND kq.IDSinhVien = dk.IDSinhVien
   INNER JOIN dbo.DT_SinhVien AS sv WITH (NOLOCK) ON kq.IDSinhVien = sv.Id
   WHERE dk.IDTrangThaiDangKy IN (1,2,3)
     AND d.TenDot LIKE @tenDot
+    AND (@idKhoaHoc = -1 OR lhoc.IDKhoaHoc = @idKhoaHoc)
+`;
+
+const COHORTS_SQL = `
+  SELECT
+    kh.Id AS IDKhoaHoc,
+    kh.TenKhoaHoc,
+    kh.Nam AS NamKhoaHoc,
+    d.TenDot,
+    COUNT(DISTINCT lhoc.Id) AS SoLopHoc,
+    COUNT(DISTINCT lhp.Id) AS SoLopHocPhan
+  FROM dbo.TKB_LopHoc lhoc WITH (NOLOCK)
+  INNER JOIN dbo.DM_Dot d WITH (NOLOCK) ON lhoc.IDDot = d.Id
+  INNER JOIN dbo.DM_KhoaHoc kh WITH (NOLOCK) ON kh.Id = lhoc.IDKhoaHoc
+  LEFT JOIN dbo.TKB_MonHoc mh WITH (NOLOCK) ON mh.IDLopHoc = lhoc.Id
+  LEFT JOIN dbo.TKB_LopHocPhan lhp WITH (NOLOCK) ON lhp.IDMonHoc = mh.Id
+  WHERE d.TenDot LIKE @tenDot
+  GROUP BY kh.Id, kh.TenKhoaHoc, kh.Nam, d.TenDot
 `;
 
 const CATEGORIES_SQL = `SELECT * FROM TMP_DsBoMonKhoa`;
@@ -141,6 +177,7 @@ const DATASETS = {
   students: {
     label: "Sinh viên",
     requireTenDot: true,
+    khoaHocFilter: true,
     sql: STUDENTS_SQL,
     defaultSort: "MaSinhVien",
     columns: [
@@ -157,6 +194,7 @@ const DATASETS = {
   teachers: {
     label: "Giảng viên",
     requireTenDot: true,
+    khoaHocFilter: true,
     sql: TEACHERS_SQL,
     defaultSort: "MaNhanSu",
     columns: [
@@ -172,6 +210,7 @@ const DATASETS = {
   courses: {
     label: "Lớp học phần",
     requireTenDot: true,
+    khoaHocFilter: true,
     sql: COURSES_SQL,
     defaultSort: "MaLopHocPhan",
     columns: [
@@ -183,6 +222,8 @@ const DATASETS = {
       col("IDToBoMon", "number", "ID bộ môn"),
       col("SoTietLyThuyet", "number", "Số tiết lý thuyết"),
       col("SoTietThucHanh", "number", "Số tiết thực hành"),
+      col("IDKhoaHoc", "number", "ID khóa"),
+      col("TenKhoaHoc", "string", "Khóa"),
       col("NgayCapNhat", "date", "Ngày cập nhật"),
     ],
   },
@@ -190,6 +231,7 @@ const DATASETS = {
   "student-enrollments": {
     label: "Đăng ký học phần",
     requireTenDot: true,
+    khoaHocFilter: true,
     sql: STUDENT_ENROLLMENTS_SQL,
     defaultSort: "MaLopHocPhan",
     columns: [
@@ -200,12 +242,15 @@ const DATASETS = {
       col("MaSinhVien", "string", "Mã sinh viên"),
       col("HoTenSinhVien", "string", "Họ tên sinh viên"),
       col("Email", "string", "Email"),
+      col("IDKhoaHoc", "number", "ID khóa"),
+      col("TenKhoaHoc", "string", "Khóa"),
     ],
   },
 
   "teacher-enrollments": {
     label: "Phân công giảng dạy",
     requireTenDot: true,
+    khoaHocFilter: true,
     sql: TEACHER_ENROLLMENTS_SQL,
     defaultSort: "MaLopHocPhan",
     columns: [
@@ -217,12 +262,15 @@ const DATASETS = {
       col("HoTenGiangVien", "string", "Họ tên giảng viên"),
       col("Email", "string", "Email"),
       col("IsTroGiang", "number", "Là trợ giảng (1/0)"),
+      col("IDKhoaHoc", "number", "ID khóa"),
+      col("TenKhoaHoc", "string", "Khóa"),
     ],
   },
 
   grades: {
     label: "Điểm tổng kết",
     requireTenDot: true,
+    khoaHocFilter: true,
     sql: GRADES_SQL,
     defaultSort: "MaSinhVien",
     columns: [
@@ -238,7 +286,24 @@ const DATASETS = {
       col("IDKetQuaHocTap", "number", "ID kết quả"),
       col("IDMonHoc", "number", "ID môn học"),
       col("IDLopHocPhan", "number", "ID lớp học phần"),
+      col("IDKhoaHoc", "number", "ID khóa"),
+      col("TenKhoaHoc", "string", "Khóa"),
       col("NgayCapNhat", "date", "Ngày cập nhật"),
+    ],
+  },
+
+  cohorts: {
+    label: "Khóa trong đợt",
+    requireTenDot: true,
+    sql: COHORTS_SQL,
+    defaultSort: "TenKhoaHoc",
+    columns: [
+      col("IDKhoaHoc", "number", "ID khóa"),
+      col("TenKhoaHoc", "string", "Khóa"),
+      col("NamKhoaHoc", "number", "Năm nhập học"),
+      col("TenDot", "string", "Tên đợt"),
+      col("SoLopHoc", "number", "Số lớp học"),
+      col("SoLopHocPhan", "number", "Số lớp học phần"),
     ],
   },
 
@@ -281,6 +346,7 @@ const listDatasets = () =>
     name,
     label: d.label,
     requireTenDot: d.requireTenDot,
+    khoaHocFilter: Boolean(d.khoaHocFilter),
     columns: d.columns.length,
   }));
 

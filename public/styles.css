@@ -515,3 +515,5 @@ tbody tr.is-selected { background: #eef4fb; }
   .filter-input { width: 100%; }
   main { padding: 16px 14px 50px; }
 }
+
+.select-khoa { max-width: 230px; }

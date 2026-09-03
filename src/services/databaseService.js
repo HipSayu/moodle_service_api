@@ -231,6 +231,7 @@ class DatabaseService {
 
     const {
       tenDot = null,
+      idKhoaHoc = null,
       filters = [],
       sort = null,
       order = "asc",
@@ -241,6 +242,12 @@ class DatabaseService {
     const parameters = {};
     if (dataset.requireTenDot) {
       parameters.tenDot = this.requireTenDot(tenDot);
+    }
+
+    // -1 nghĩa là không lọc khóa. Dùng số thay cho NULL để tham số luôn cùng kiểu.
+    if (dataset.khoaHocFilter) {
+      const parsed = parseInt(idKhoaHoc, 10);
+      parameters.idKhoaHoc = Number.isInteger(parsed) ? parsed : -1;
     }
 
     const where = this.buildFilterClause(dataset, filters, parameters);
@@ -322,42 +329,139 @@ class DatabaseService {
       .map(([field, spec]) => ({ field, op: spec.op || "eq", value: spec.value }));
   }
 
-  async getStudents({ tenDot, maSinhVien = null } = {}) {
+  // ==================== KHÓA (K70, K71...) ====================
+
+  // Danh sách khóa có lớp trong một đợt, kèm số lớp để biết khóa nào đang chạy
+  async getCohorts({ tenDot } = {}) {
+    return this.queryDatasetAll("cohorts", { tenDot });
+  }
+
+  // Rút số khóa từ một chuỗi bất kỳ: "70", "K70", "Khóa 70 (2025)" -> 70.
+  // Tên khóa trong DM_KhoaHoc không theo chuẩn nào nên phải dò kiểu này.
+  cohortNumber(text) {
+    const value = String(text ?? "").trim();
+    if (/^\d{1,3}$/.test(value)) return parseInt(value, 10);
+
+    const matched = value.match(/kh[oó]a\s*(\d{1,3})|(?:^|\s)k\s*(\d{1,3})/i);
+    return matched ? parseInt(matched[1] ?? matched[2], 10) : null;
+  }
+
+  // Đổi thứ người dùng nhập thành đúng một khóa trong đợt.
+  //   idKhoaHoc: chọn chính xác theo id (giao diện dùng cách này)
+  //   khoaHoc:   chuỗi tự do "70" / "K70" / "Khóa 70 (2025)"
+  // Không tìm ra hoặc khớp nhiều khóa thì báo lỗi kèm danh sách để người dùng chọn lại.
+  // Không bao giờ đoán bừa vì đoán sai là đồng bộ nhầm nguyên một khóa.
+  async resolveCohortFilter({ tenDot, khoaHoc = null, idKhoaHoc = null } = {}) {
+    const hasId = idKhoaHoc !== null && idKhoaHoc !== undefined && String(idKhoaHoc).trim() !== "";
+    const hasText = khoaHoc !== null && khoaHoc !== undefined && String(khoaHoc).trim() !== "";
+
+    if (!hasId && !hasText) return { idKhoaHoc: null, tenKhoaHoc: null };
+
+    const cohorts = await this.getCohorts({ tenDot });
+
+    if (cohorts.length === 0) {
+      throw new AppError(`Đợt "${tenDot}" không có khóa nào`, 404);
+    }
+
+    const pick = (cohort) => ({
+      idKhoaHoc: cohort.IDKhoaHoc,
+      tenKhoaHoc: cohort.TenKhoaHoc,
+    });
+
+    const describe = (list) =>
+      list.map((c) => `${c.IDKhoaHoc}=${c.TenKhoaHoc}`).join("; ");
+
+    if (hasId) {
+      const wanted = parseInt(idKhoaHoc, 10);
+      const found = cohorts.find((c) => c.IDKhoaHoc === wanted);
+      if (found) return pick(found);
+
+      throw new AppError(
+        `Đợt "${tenDot}" không có khóa id ${idKhoaHoc}. Các khóa trong đợt: ${describe(cohorts)}`
+      );
+    }
+
+    const input = String(khoaHoc).trim();
+    const lower = input.toLowerCase();
+
+    // 1. Trùng đúng tên khóa
+    const exact = cohorts.filter((c) => String(c.TenKhoaHoc ?? "").toLowerCase() === lower);
+    if (exact.length === 1) return pick(exact[0]);
+
+    // 2. Cùng số khóa: "70" khớp "Khóa 70 (2025)", "K71" khớp "K71"
+    const number = this.cohortNumber(input);
+    if (number !== null) {
+      const sameNumber = cohorts.filter((c) => this.cohortNumber(c.TenKhoaHoc) === number);
+      if (sameNumber.length === 1) return pick(sameNumber[0]);
+      if (sameNumber.length > 1) {
+        throw new AppError(
+          `"${input}" khớp ${sameNumber.length} khóa trong đợt "${tenDot}", chọn lại theo id: ${describe(sameNumber)}`
+        );
+      }
+    }
+
+    // 3. Chứa chuỗi người dùng nhập
+    const contains = cohorts.filter((c) =>
+      String(c.TenKhoaHoc ?? "").toLowerCase().includes(lower)
+    );
+    if (contains.length === 1) return pick(contains[0]);
+    if (contains.length > 1) {
+      throw new AppError(
+        `"${input}" khớp ${contains.length} khóa trong đợt "${tenDot}", chọn lại theo id: ${describe(contains)}`
+      );
+    }
+
+    throw new AppError(
+      `Không tìm thấy khóa "${input}" trong đợt "${tenDot}". Các khóa trong đợt: ${describe(cohorts)}`
+    );
+  }
+
+  async getStudents({ tenDot, maSinhVien = null, idKhoaHoc = null } = {}) {
     return this.queryDatasetAll("students", {
       tenDot,
+      idKhoaHoc,
       filters: this.buildFilters({ MaSinhVien: { value: maSinhVien } }),
     });
   }
 
-  async getTeachers({ tenDot, maGiangVien = null } = {}) {
+  async getTeachers({ tenDot, maGiangVien = null, idKhoaHoc = null } = {}) {
     // Cho phép truyền mã hoặc email nên tra cả hai cột
     if (!maGiangVien) {
-      return this.queryDatasetAll("teachers", { tenDot });
+      return this.queryDatasetAll("teachers", { tenDot, idKhoaHoc });
     }
 
     const byCode = await this.queryDatasetAll("teachers", {
       tenDot,
+      idKhoaHoc,
       filters: [{ field: "MaNhanSu", op: "eq", value: maGiangVien }],
     });
     if (byCode.length > 0) return byCode;
 
     return this.queryDatasetAll("teachers", {
       tenDot,
+      idKhoaHoc,
       filters: [{ field: "Email", op: "eq", value: maGiangVien }],
     });
   }
 
-  async getCourses({ tenDot, maLopHocPhan = null } = {}) {
+  async getCourses({ tenDot, maLopHocPhan = null, idKhoaHoc = null } = {}) {
     return this.queryDatasetAll("courses", {
       tenDot,
+      idKhoaHoc,
       filters: this.buildFilters({ MaLopHocPhan: { value: maLopHocPhan } }),
     });
   }
 
-  async getStudentEnrollments({ tenDot, maSinhVien = null, maLopHocPhan = null } = {}) {
+  async getStudentEnrollments({
+    tenDot,
+    maSinhVien = null,
+    maLopHocPhan = null,
+    idKhoaHoc = null,
+  } = {}) {
     if (maSinhVien) {
       const byCode = await this.queryDatasetAll("student-enrollments", {
         tenDot,
+        idKhoaHoc,
         filters: this.buildFilters({
           MaSinhVien: { value: maSinhVien },
           MaLopHocPhan: { value: maLopHocPhan },
@@ -367,6 +471,7 @@ class DatabaseService {
 
       return this.queryDatasetAll("student-enrollments", {
         tenDot,
+        idKhoaHoc,
         filters: this.buildFilters({
           Email: { value: maSinhVien },
           MaLopHocPhan: { value: maLopHocPhan },
@@ -376,14 +481,21 @@ class DatabaseService {
 
     return this.queryDatasetAll("student-enrollments", {
       tenDot,
+      idKhoaHoc,
       filters: this.buildFilters({ MaLopHocPhan: { value: maLopHocPhan } }),
     });
   }
 
-  async getTeacherEnrollments({ tenDot, maGiangVien = null, maLopHocPhan = null } = {}) {
+  async getTeacherEnrollments({
+    tenDot,
+    maGiangVien = null,
+    maLopHocPhan = null,
+    idKhoaHoc = null,
+  } = {}) {
     if (maGiangVien) {
       const byCode = await this.queryDatasetAll("teacher-enrollments", {
         tenDot,
+        idKhoaHoc,
         filters: this.buildFilters({
           MaGiangVien: { value: maGiangVien },
           MaLopHocPhan: { value: maLopHocPhan },
@@ -393,6 +505,7 @@ class DatabaseService {
 
       return this.queryDatasetAll("teacher-enrollments", {
         tenDot,
+        idKhoaHoc,
         filters: this.buildFilters({
           Email: { value: maGiangVien },
           MaLopHocPhan: { value: maLopHocPhan },
@@ -402,13 +515,21 @@ class DatabaseService {
 
     return this.queryDatasetAll("teacher-enrollments", {
       tenDot,
+      idKhoaHoc,
       filters: this.buildFilters({ MaLopHocPhan: { value: maLopHocPhan } }),
     });
   }
 
-  async getGrades({ tenDot, maLopHocPhan = null, tenLopHoc = null, maSinhVien = null } = {}) {
+  async getGrades({
+    tenDot,
+    maLopHocPhan = null,
+    tenLopHoc = null,
+    maSinhVien = null,
+    idKhoaHoc = null,
+  } = {}) {
     return this.queryDatasetAll("grades", {
       tenDot,
+      idKhoaHoc,
       filters: this.buildFilters({
         MaLopHocPhan: { value: maLopHocPhan },
         TenLopHoc: { value: tenLopHoc, op: "contains" },

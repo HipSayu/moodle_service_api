@@ -133,14 +133,14 @@ const DOT = encodeURIComponent(TEN_DOT);
 const meta = await call('GET', '/api/data/grades/fields');
 check(
   'Metadata trường của dataset',
-  meta.status === 200 && meta.body?.data?.columns?.length === 13,
+  meta.status === 200 && meta.body?.data?.columns?.length === 15,
   `${meta.body?.data?.columns?.length} trường`
 );
 
 const dsList = await call('GET', '/api/data');
 check(
   'Danh sách dataset',
-  dsList.status === 200 && dsList.body?.data?.datasets?.length === 7,
+  dsList.status === 200 && dsList.body?.data?.datasets?.length === 8,
   `${dsList.body?.data?.datasets?.length} dataset`
 );
 

@@ -23,6 +23,12 @@
       <span>Học kỳ (tenDot)</span>
       <input id="tenDot" type="text" placeholder="HK1 2026-2027" autocomplete="off">
     </label>
+    <label class="field field-inline">
+      <span>Khóa</span>
+      <select id="khoaHoc" class="select select-khoa" disabled>
+        <option value="">Cả đợt</option>
+      </select>
+    </label>
     <button id="healthBtn" class="btn btn-ghost" type="button">
       <span id="healthDot" class="status-dot status-unknown"></span>
       <span id="healthText">Kiểm tra kết nối</span>
@@ -44,6 +50,8 @@
     <div class="notice">
       Mọi tác vụ đồng bộ đều <strong>bỏ qua đối tượng đã tồn tại</strong> trên Moodle, chạy lại nhiều lần an toàn.
       Thứ tự khuyến nghị: Khoa/Bộ môn → Sinh viên → Giảng viên → Khóa học → Đăng ký.
+      Chọn <strong>Khóa</strong> ở thanh trên để chạy lần lượt từng khóa (K70, K71...) thay vì cả đợt một lần —
+      nút "Toàn bộ đợt" sẽ chỉ chạy trong phạm vi khóa đang chọn. Các nút chạy một mã cụ thể không bị lọc theo khóa.
     </div>
 
     <div class="card-grid">

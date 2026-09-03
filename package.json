@@ -10,7 +10,8 @@
     "smoke:routes": "node tests/smoke-routes.mjs",
     "smoke:sync": "node tests/smoke-sync.mjs",
     "smoke:merge": "node tests/smoke-merge.mjs",
-    "smoke": "node tests/smoke-routes.mjs && node tests/smoke-sync.mjs && node tests/smoke-ui.mjs && node tests/smoke-ui-live.mjs && node tests/smoke-merge.mjs",
+    "smoke:cohort": "node tests/smoke-cohort.mjs",
+    "smoke": "node tests/smoke-routes.mjs && node tests/smoke-sync.mjs && node tests/smoke-ui.mjs && node tests/smoke-ui-live.mjs && node tests/smoke-merge.mjs && node tests/smoke-cohort.mjs",
     "smoke:ui": "node tests/smoke-ui.mjs && node tests/smoke-ui-live.mjs"
   },
   "keywords": [

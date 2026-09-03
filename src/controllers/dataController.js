@@ -8,8 +8,18 @@ import {
 import { ok, fail } from "../utils/response.js";
 import { getTenDot, getParam, getInt } from "../utils/requestParams.js";
 
-// Tham số không phải bộ lọc
-const RESERVED = new Set(["tenDot", "sort", "order", "limit", "offset", "format"]);
+// Tham số không phải bộ lọc.
+// khoaHoc/idKhoaHoc được áp ngay trong câu truy vấn gốc nên cũng không phải bộ lọc cột.
+const RESERVED = new Set([
+  "tenDot",
+  "khoaHoc",
+  "idKhoaHoc",
+  "sort",
+  "order",
+  "limit",
+  "offset",
+  "format",
+]);
 
 /**
  * Tách bộ lọc từ query string.
@@ -102,8 +112,25 @@ const query = async (req, res) => {
     return fail(res, { message: `Thiếu tenDot cho tập dữ liệu "${name}"` });
   }
 
+  // Khóa (K70, K71...) áp trong câu gốc, không phải bộ lọc cột đầu ra
+  const khoaHoc = getParam(req, "khoaHoc");
+  const idKhoaHocRaw = getParam(req, "idKhoaHoc");
+
+  if ((khoaHoc || idKhoaHocRaw) && !dataset.khoaHocFilter) {
+    return fail(res, {
+      message: `Tập dữ liệu "${name}" không lọc được theo khóa`,
+    });
+  }
+
+  const { idKhoaHoc } = await databaseService.resolveCohortFilter({
+    tenDot,
+    khoaHoc,
+    idKhoaHoc: idKhoaHocRaw,
+  });
+
   const result = await databaseService.queryDataset(name, {
     tenDot,
+    idKhoaHoc,
     filters: parseFilters(req.query),
     sort: getParam(req, "sort"),
     order: getParam(req, "order") || "asc",
