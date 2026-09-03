@@ -216,6 +216,9 @@ File Excel lưu trong `logs/reports/`.
 | GET | `/api/moodle/site-info` | Thông tin site + quyền của token |
 | GET | `/api/moodle/functions` | Danh sách function token được gọi |
 | GET | `/api/moodle/courses?limit=10` | Danh sách khóa học |
+| GET | `/api/moodle/categories` | Danh sách danh mục (khoa/bộ môn) |
+| POST | `/api/moodle/courses/merge/preview` | Xem trước kết quả gộp lớp |
+| POST | `/api/moodle/courses/merge` | **Gộp nhiều lớp thành lớp mới rồi xóa lớp nguồn** — cần `confirm=true` |
 | GET | `/api/moodle/users?key=auth&value=manual` | Tìm người dùng theo tiêu chí Moodle |
 | GET | `/api/moodle/courses/:courseId/users?roleid=5` | Thành viên khóa học, lọc theo vai trò |
 | GET | `/api/moodle/courses/:courseId/quizzes` | Quiz trong một khóa học |
@@ -241,7 +244,36 @@ curl -X POST localhost:3000/api/enrollments/teachers/01025     -H 'Content-Type:
 
 # Báo cáo
 curl -o report.xlsx 'localhost:3000/api/reports/locked-grades?idDot=298&late=true&download=true'
+
+# Gộp 2 lớp trên Moodle thành 1 lớp mới
+curl -X POST localhost:3000/api/moodle/courses/merge/preview -H 'Content-Type: application/json' \
+  -d '{"sourceCourseIds":[901,902]}'
+
+curl -X POST localhost:3000/api/moodle/courses/merge -H 'Content-Type: application/json' \
+  -d '{"sourceCourseIds":[901,902],"fullname":"67CS1+67CS2 - Toan","shortname":"GOP_67CS_HK1","confirm":true}'
 ```
+
+### Gộp lớp
+
+Giao diện: tab **Dữ liệu Moodle → Khóa học**, lọc theo tên/mã lớp (không cần gõ dấu),
+danh mục, trạng thái hiện-ẩn; tích chọn từ 2 lớp trở lên rồi bấm **Gộp lớp đã chọn**.
+Lựa chọn được giữ nguyên khi đổi bộ lọc hoặc sang trang khác.
+
+Luồng xử lý: tạo lớp mới → sao chép tên các section của lớp nguồn → chuyển toàn bộ thành viên
+(giữ nguyên vai trò, người có mặt ở nhiều lớp chỉ đăng ký một lần) → xóa lớp nguồn.
+
+| Tham số | Mặc định | Ý nghĩa |
+|---|---|---|
+| `sourceCourseIds` | *(bắt buộc)* | Mảng `[901,902]` hoặc chuỗi `"901,902"`, tối thiểu 2 lớp |
+| `fullname` / `shortname` | *(bắt buộc)* | Tên và mã lớp mới, `shortname` phải chưa tồn tại |
+| `idnumber`, `categoryid`, `summary` | *(tùy chọn)* | Mặc định lấy danh mục của lớp đầu tiên |
+| `copySections` | `true` | Tạo lại các section cùng tên ở lớp mới |
+| `deleteSources` | `true` | Xóa lớp nguồn sau khi gộp |
+| `confirm` | `false` | Bắt buộc `true` khi `deleteSources=true` |
+
+Giới hạn quan trọng: web service chỉ chuyển được **thành viên**. Nội dung, bài tập, bài nộp và
+điểm của lớp nguồn không chuyển sang lớp mới và sẽ mất khi xóa lớp nguồn. Nếu còn thành viên
+đăng ký lỗi, service **tự động không xóa** lớp nguồn và trả về HTTP 207 kèm cảnh báo.
 
 ## Cấu trúc mã nguồn
 
@@ -258,6 +290,7 @@ src/
     databaseService.js      Truy vấn SQL Server + xuất báo cáo Excel
     moodleService.js        Bọc Moodle Web Service API
     syncToMoodleService.js  Nghiệp vụ đồng bộ
+    courseMergeService.js   Gộp nhiều lớp Moodle thành một lớp mới
     schedulerService.js     Cron job
   utils/
     response.js             Khuôn response chung

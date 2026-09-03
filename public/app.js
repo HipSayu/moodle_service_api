@@ -26,6 +26,15 @@
     return String(v);
   };
 
+  // Bỏ dấu tiếng Việt để gõ "toan" vẫn tìm ra "Toán"
+  const normalize = (v) =>
+    String(v ?? "")
+      .toLowerCase()
+      .normalize("NFD")
+      .replace(/\p{Diacritic}/gu, "")
+      .replace(/đ/g, "d")
+      .trim();
+
   let toastTimer;
   function toast(message, kind) {
     const el = $("#toast");
@@ -109,17 +118,81 @@
 
   // ==================== bảng dùng chung ====================
 
-  // Trạng thái của mỗi bảng: dữ liệu gốc, dữ liệu đã lọc, trang hiện tại
-  function createTable(containerSel, countSel, filterSel) {
-    const state = { rows: [], filtered: [], page: 1, label: "data" };
+  // Trạng thái của mỗi bảng: dữ liệu gốc, dữ liệu đã lọc, trang hiện tại.
+  // options.selectable bật cột chọn dòng; lựa chọn được giữ qua phân trang và bộ lọc.
+  function createTable(containerSel, countSel, filterSel, options = {}) {
+    const {
+      selectable = false,
+      idKey = "id",
+      onSelectionChange = null,
+      pinSelected = false, // dòng đã chọn luôn hiện ở đầu bảng, kể cả khi bị bộ lọc loại
+    } = options;
+
+    const state = {
+      rows: [],
+      filtered: [],
+      page: 1,
+      label: "data",
+      selected: new Map(), // id (chuỗi) -> dòng dữ liệu
+      extraFilter: null,   // bộ lọc riêng của từng view, ngoài ô lọc nhanh
+      columns: null,       // mô tả cột; không khai báo thì lấy thẳng key của dữ liệu
+      sort: null,          // { key, dir } khi người dùng bấm tiêu đề cột
+    };
+
+    const rowId = (row) => String(row[idKey]);
+    const getSelected = () => Array.from(state.selected.values());
+    const notifySelection = () => onSelectionChange && onSelectionChange(getSelected());
+
+    // Cột hiển thị: { key, label, render?, sortable? }.
+    // render trả về HTML nên phải tự escape bên trong.
+    const columnDefs = () =>
+      state.columns ||
+      Object.keys(state.rows[0] || {}).map((key) => ({ key, label: key }));
+
+    const cellValue = (col, row) => row[col.key];
+
+    function sortRows(rows) {
+      if (!state.sort) return rows;
+
+      const col = columnDefs().find((c) => c.key === state.sort.key);
+      if (!col) return rows;
+
+      const dir = state.sort.dir === "desc" ? -1 : 1;
+
+      return [...rows].sort((a, b) => {
+        const x = cellValue(col, a);
+        const y = cellValue(col, b);
+
+        if (x === y) return 0;
+        if (x === null || x === undefined || x === "") return 1;  // ô trống luôn xuống cuối
+        if (y === null || y === undefined || y === "") return -1;
+
+        if (typeof x === "number" && typeof y === "number") return (x - y) * dir;
+        return String(x).localeCompare(String(y), "vi", { numeric: true, sensitivity: "base" }) * dir;
+      });
+    }
 
     function applyFilter() {
       const q = ($(filterSel).value || "").trim().toLowerCase();
-      state.filtered = !q
-        ? state.rows
-        : state.rows.filter((r) =>
-            Object.values(r).some((v) => fmtCell(v).toLowerCase().includes(q))
-          );
+
+      const matched = sortRows(
+        state.rows.filter((r) => {
+          if (state.extraFilter && !state.extraFilter(r)) return false;
+          if (!q) return true;
+          return Object.values(r).some((v) => fmtCell(v).toLowerCase().includes(q));
+        })
+      );
+
+      if (!pinSelected || !state.selected.size) {
+        state.filtered = matched;
+      } else {
+        // Ghim dòng đã chọn lên đầu: chọn lớp này rồi lọc tìm lớp kia
+        // vẫn nhìn thấy cả hai ở cùng một chỗ.
+        const picked = sortRows(state.rows.filter((r) => state.selected.has(rowId(r))));
+        const pickedIds = new Set(picked.map(rowId));
+        state.filtered = [...picked, ...matched.filter((r) => !pickedIds.has(rowId(r)))];
+      }
+
       state.page = 1;
       render();
     }
@@ -146,24 +219,45 @@
       state.page = Math.min(state.page, pages);
       const start = (state.page - 1) * PAGE_SIZE;
       const slice = state.filtered.slice(start, start + PAGE_SIZE);
-      const cols = Object.keys(state.rows[0]);
+      const cols = columnDefs();
 
-      const head = cols.map((c) => `<th>${esc(c)}</th>`).join("");
+      const head = cols
+        .map((c) => {
+          if (c.sortable === false) return `<th>${esc(c.label)}</th>`;
+
+          const active = state.sort && state.sort.key === c.key;
+          const arrow = active ? (state.sort.dir === "desc" ? " ↓" : " ↑") : "";
+          return `<th class="sortable${active ? " is-sorted" : ""}" data-sort-key="${esc(c.key)}" title="Bấm để sắp xếp">${esc(c.label)}${arrow}</th>`;
+        })
+        .join("");
+
+      const selHead = selectable
+        ? '<th class="sel"><input type="checkbox" data-sel-all title="Chọn/bỏ chọn các dòng đang hiển thị"></th>'
+        : "";
+
       const rows = slice
         .map((r, i) => {
           const cells = cols
             .map((c) => {
-              const raw = r[c];
+              if (c.render) return `<td>${c.render(r)}</td>`;
+
+              const raw = cellValue(c, r);
               const cls = typeof raw === "number" ? ' class="num"' : "";
               return `<td${cls}>${esc(fmtCell(raw))}</td>`;
             })
             .join("");
-          return `<tr><td class="idx">${start + i + 1}</td>${cells}</tr>`;
+
+          const picked = selectable && state.selected.has(rowId(r));
+          const selCell = selectable
+            ? `<td class="sel"><input type="checkbox" data-sel-id="${esc(rowId(r))}"${picked ? " checked" : ""}></td>`
+            : "";
+
+          return `<tr${picked ? ' class="is-selected"' : ""}>${selCell}<td class="idx">${start + i + 1}</td>${cells}</tr>`;
         })
         .join("");
 
       box.innerHTML =
-        `<table><thead><tr><th class="idx">#</th>${head}</tr></thead><tbody>${rows}</tbody></table>` +
+        `<table><thead><tr>${selHead}<th class="idx">#</th>${head}</tr></thead><tbody>${rows}</tbody></table>` +
         (pages > 1
           ? `<div class="pager">
                <button class="btn btn-sm" data-page="prev" ${state.page === 1 ? "disabled" : ""}>← Trước</button>
@@ -178,17 +272,62 @@
       const next = box.querySelector('[data-page="next"]');
       if (prev) prev.addEventListener("click", () => { state.page--; render(); });
       if (next) next.addEventListener("click", () => { state.page++; render(); });
+
+      // Bấm tiêu đề để sắp xếp, bấm lại cột đang sắp xếp thì đảo chiều
+      box.querySelectorAll("[data-sort-key]").forEach((th) => {
+        th.addEventListener("click", () => {
+          const key = th.dataset.sortKey;
+          state.sort =
+            state.sort && state.sort.key === key
+              ? { key, dir: state.sort.dir === "asc" ? "desc" : "asc" }
+              : { key, dir: "asc" };
+          applyFilter();
+        });
+      });
+
+      if (!selectable) return;
+
+      const byId = new Map(slice.map((r) => [rowId(r), r]));
+
+      box.querySelectorAll("[data-sel-id]").forEach((cb) => {
+        cb.addEventListener("change", () => {
+          const row = byId.get(cb.dataset.selId);
+          if (!row) return;
+
+          if (cb.checked) state.selected.set(cb.dataset.selId, row);
+          else state.selected.delete(cb.dataset.selId);
+
+          cb.closest("tr").classList.toggle("is-selected", cb.checked);
+          const all = box.querySelector("[data-sel-all]");
+          if (all) all.checked = slice.every((r) => state.selected.has(rowId(r)));
+          notifySelection();
+        });
+      });
+
+      // Ô ở đầu bảng chỉ tác động lên các dòng đang hiển thị của trang hiện tại
+      const selAll = box.querySelector("[data-sel-all]");
+      if (selAll) {
+        selAll.checked = slice.length > 0 && slice.every((r) => state.selected.has(rowId(r)));
+        selAll.addEventListener("change", () => {
+          slice.forEach((r) => {
+            if (selAll.checked) state.selected.set(rowId(r), r);
+            else state.selected.delete(rowId(r));
+          });
+          render();
+          notifySelection();
+        });
+      }
     }
 
     // Xuất đúng phần đang lọc ra CSV
     function exportCSV() {
       if (!state.filtered.length) return toast("Không có dữ liệu để xuất", "err");
 
-      const cols = Object.keys(state.rows[0]);
+      const cols = columnDefs();
       const escCsv = (v) => `"${fmtCell(v).replace(/"/g, '""')}"`;
       const csv = [
-        cols.join(","),
-        ...state.filtered.map((r) => cols.map((c) => escCsv(r[c])).join(",")),
+        cols.map((c) => escCsv(c.label)).join(","),
+        ...state.filtered.map((r) => cols.map((c) => escCsv(cellValue(c, r))).join(",")),
       ].join("\r\n");
 
       // BOM để Excel đọc đúng tiếng Việt
@@ -206,12 +345,36 @@
       setRows(rows, label) {
         state.rows = Array.isArray(rows) ? rows : [];
         state.label = label || "data";
+        state.selected.clear();
+        state.sort = null;
         $(filterSel).value = "";
         applyFilter();
+        notifySelection();
+      },
+      // Khai báo cột hiển thị; truyền null để quay lại lấy thẳng key của dữ liệu
+      setColumns(columns) {
+        state.columns = columns || null;
       },
       setMessage(html) {
         $(containerSel).innerHTML = html;
         $(countSel).textContent = "";
+      },
+      getRows: () => state.rows,
+      getSelected,
+      deselect(id) {
+        state.selected.delete(String(id));
+        applyFilter(); // bỏ ghim thì dòng không khớp bộ lọc phải biến mất
+        notifySelection();
+      },
+      clearSelection() {
+        state.selected.clear();
+        render();
+        notifySelection();
+      },
+      // Bộ lọc riêng của view, chạy cùng ô lọc nhanh
+      setExtraFilter(fn) {
+        state.extraFilter = fn;
+        applyFilter();
       },
       exportCSV,
     };
@@ -219,8 +382,32 @@
 
   // ==================== TAB ĐỒNG BỘ ====================
 
-  const resultBox = $("#syncResult");
-  let hasResult = false;
+  // Vùng hiển thị kết quả của một tác vụ. Dùng cho cả tab Đồng bộ và form gộp lớp.
+  function createResultLog(boxSel) {
+    const box = $(boxSel);
+    let hasResult = false;
+
+    return {
+      box,
+      // Bỏ dòng "chưa chạy tác vụ nào" trước khi hiện trạng thái đang chạy
+      prepareRun() {
+        if (!hasResult) box.innerHTML = "";
+      },
+      push(html) {
+        if (!hasResult) {
+          box.innerHTML = "";
+          hasResult = true;
+        }
+        box.insertAdjacentHTML("afterbegin", html);
+      },
+      reset() {
+        box.innerHTML = '<p class="empty">Chưa chạy tác vụ nào.</p>';
+        hasResult = false;
+      },
+    };
+  }
+
+  const syncLog = createResultLog("#syncResult");
 
   function statBlock(data) {
     const items = [
@@ -273,7 +460,7 @@
     );
   }
 
-  function renderResult(title, res, elapsedMs) {
+  function renderResult(log, title, res, elapsedMs) {
     const { body, status } = res;
     const data = body?.data || {};
 
@@ -291,7 +478,20 @@
       `<span class="meta">HTTP ${status} · ${(elapsedMs / 1000).toFixed(1)}s · ${new Date().toLocaleTimeString("vi-VN")}</span></div>` +
       `<p class="msg">${esc(body?.message || "")}</p>`;
 
+    if (data.targetCourse) {
+      html +=
+        `<p class="msg">Lớp mới: <strong>${esc(data.targetCourse.shortname)}</strong> — ` +
+        `<a href="${esc(data.targetCourse.url)}" target="_blank" rel="noopener">mở trên Moodle (id ${esc(data.targetCourse.id)})</a></p>`;
+    }
+
     if (typeof data.total === "number") html += statBlock(data);
+
+    if (data.warnings && data.warnings.length) {
+      html +=
+        '<ul class="msg">' +
+        data.warnings.map((w) => `<li>${esc(w)}</li>`).join("") +
+        "</ul>";
+    }
 
     if (data.errors && data.errors.length) {
       html +=
@@ -324,24 +524,19 @@
 
     html += "</div>";
 
-    if (!hasResult) {
-      resultBox.innerHTML = "";
-      hasResult = true;
-    }
-    resultBox.insertAdjacentHTML("afterbegin", html);
+    log.push(html);
   }
 
-  async function runSync(btn, title, path, payload) {
+  async function runSync(btn, title, path, payload, log = syncLog) {
     const started = Date.now();
 
-    // Bỏ dòng "chưa chạy tác vụ nào" trước khi hiện trạng thái đang chạy
-    if (!hasResult) resultBox.innerHTML = "";
+    log.prepareRun();
 
     // Dòng báo đang chạy kèm bộ đếm giây
     const runLine = document.createElement("div");
     runLine.className = "run-line";
     runLine.innerHTML = `<span class="status-dot status-unknown"></span><span>Đang chạy: <strong>${esc(title)}</strong> — <span data-elapsed>0</span>s</span>`;
-    resultBox.prepend(runLine);
+    log.box.prepend(runLine);
     const ticker = setInterval(() => {
       runLine.querySelector("[data-elapsed]").textContent = Math.round((Date.now() - started) / 1000);
     }, 1000);
@@ -350,14 +545,16 @@
 
     try {
       const res = await postJSON(path, payload);
-      renderResult(title, res, Date.now() - started);
+      renderResult(log, title, res, Date.now() - started);
       toast(
         `${title}: ${res.body?.message || "hoàn tất"}`,
         res.body?.success ? "ok" : "err"
       );
+      return res;
     } catch (err) {
-      renderResult(title, { status: 0, body: { success: false, message: "Không gọi được service: " + err.message } }, Date.now() - started);
+      renderResult(log, title, { status: 0, body: { success: false, message: "Không gọi được service: " + err.message } }, Date.now() - started);
       toast("Không gọi được service", "err");
+      return null;
     } finally {
       clearInterval(ticker);
       runLine.remove();
@@ -404,10 +601,7 @@
     });
   });
 
-  $("#clearResult").addEventListener("click", () => {
-    resultBox.innerHTML = '<p class="empty">Chưa chạy tác vụ nào.</p>';
-    hasResult = false;
-  });
+  $("#clearResult").addEventListener("click", () => syncLog.reset());
 
   // ==================== TAB DỮ LIỆU CORE ====================
   // Danh sách dataset và các trường lọc được lấy động từ /api/data,
@@ -626,11 +820,49 @@
 
   // ==================== TAB DỮ LIỆU MOODLE ====================
 
-  const moodleTable = createTable("#moodleTable", "#moodleCount", "#moodleFilterInput");
   let moodleView = "courses";
 
+  const moodleTable = createTable("#moodleTable", "#moodleCount", "#moodleFilterInput", {
+    selectable: true,
+    idKey: "id",
+    pinSelected: true,
+    onSelectionChange: (selected) => updateMergeBar(selected),
+  });
+
+  // Danh mục Moodle, tải một lần rồi dùng lại cho bộ lọc và form gộp lớp
+  const categories = { items: [], byId: new Map(), loaded: false };
+
+  // Địa chỉ Moodle, lấy kèm khi tải danh sách khóa học để dựng link mở lớp
+  let moodleSiteUrl = "";
+
+  // Bảng khóa học hiển thị theo cột dễ đọc thay vì đổ thẳng dữ liệu thô của Moodle
+  const COURSE_COLUMNS = [
+    { key: "id", label: "ID" },
+    {
+      key: "shortname",
+      label: "Mã lớp (shortname)",
+      render: (r) =>
+        moodleSiteUrl
+          ? `<a href="${esc(moodleSiteUrl)}/course/view.php?id=${esc(r.id)}" target="_blank" rel="noopener" title="Mở lớp trên Moodle">${esc(r.shortname)} ↗</a>`
+          : esc(r.shortname),
+    },
+    { key: "fullname", label: "Tên lớp" },
+    { key: "idnumber", label: "Idnumber" },
+    { key: "danhMuc", label: "Danh mục" },
+    {
+      key: "visible",
+      label: "Trạng thái",
+      render: (r) =>
+        r.visible
+          ? '<span class="pill pill-ok">Đang hiện</span>'
+          : '<span class="pill pill-muted">Đang ẩn</span>',
+    },
+  ];
+
   const MOODLE_HINTS = {
-    courses: "Toàn bộ khóa học trên Moodle. Cột shortname có dạng <MaLopHocPhan>_<TenDot>.",
+    courses:
+      "Ô tìm kiếm khớp <strong>shortname</strong> (dạng &lt;MaLopHocPhan&gt;_&lt;TenDot&gt;), tên lớp và idnumber, không cần gõ dấu. " +
+      "Bấm tiêu đề cột để sắp xếp, bấm mã lớp để mở trên Moodle. Tích chọn từ 2 lớp trở lên để gộp thành một lớp mới.",
     users:
       "Moodle yêu cầu ít nhất một tiêu chí tìm kiếm. Mặc định auth=manual — đây là các tài khoản do service này tạo ra.",
     members:
@@ -642,19 +874,84 @@
     $$("#moodleSubtabs .subtab").forEach((b) => b.classList.toggle("is-active", b.dataset.view === view));
     $$(".toolbar-slot").forEach((slot) => (slot.hidden = slot.dataset.for !== view));
     $("#moodleHint").innerHTML = MOODLE_HINTS[view] || "";
+
+    // Bộ lọc của view cũ không còn ý nghĩa với dữ liệu của view mới
+    moodleTable.setExtraFilter(null);
     moodleTable.setMessage('<p class="empty">Bấm <strong>Tải dữ liệu</strong>.</p>');
+
+    // Gộp lớp chỉ có nghĩa ở danh sách khóa học
+    closeMergeForm();
+    $("#mergeBar").hidden = view !== "courses";
+    updateMergeBar(moodleTable.getSelected());
   }
 
   $$("#moodleSubtabs .subtab").forEach((btn) => {
     btn.addEventListener("click", () => setMoodleView(btn.dataset.view));
   });
 
-  $("#moodleLoad").addEventListener("click", async () => {
+  // ---- danh mục ----
+
+  async function loadCategories() {
+    if (categories.loaded) return;
+
+    try {
+      const { body } = await api("/api/moodle/categories");
+      if (!body?.success) return;
+
+      categories.items = body.data.items || [];
+      categories.byId = new Map(categories.items.map((c) => [c.id, c]));
+      categories.loaded = true;
+
+      $("#moodleCourseCategory").innerHTML =
+        '<option value="">Tất cả danh mục</option>' +
+        categories.items
+          .map((c) => `<option value="${c.id}">${esc(c.name)}</option>`)
+          .join("");
+    } catch {
+      // Không lấy được danh mục thì bộ lọc vẫn chạy theo categoryid
+    }
+  }
+
+  // ---- bộ lọc riêng của danh sách khóa học ----
+
+  function applyCourseFilters() {
+    if (moodleView !== "courses") return;
+
+    const search = normalize($("#moodleCourseSearch").value);
+    const categoryId = $("#moodleCourseCategory").value;
+    const visible = $("#moodleCourseVisible").value;
+    const onlySelected = $("#moodleOnlySelected").checked;
+    const selectedIds = new Set(moodleTable.getSelected().map((r) => r.id));
+
+    moodleTable.setExtraFilter((row) => {
+      // Chỉ tìm trong tên/mã lớp, không đụng tới các cột còn lại
+      if (
+        search &&
+        !normalize(`${row.fullname} ${row.shortname} ${row.idnumber}`).includes(search)
+      ) {
+        return false;
+      }
+      if (categoryId && String(row.categoryid) !== categoryId) return false;
+      if (visible !== "" && String(row.visible) !== visible) return false;
+      if (onlySelected && !selectedIds.has(row.id)) return false;
+      return true;
+    });
+  }
+
+  ["#moodleCourseCategory", "#moodleCourseVisible", "#moodleOnlySelected"].forEach((sel) =>
+    $(sel).addEventListener("change", applyCourseFilters)
+  );
+  $("#moodleCourseSearch").addEventListener("input", applyCourseFilters);
+
+  $("#moodleLoad").addEventListener("click", () => loadMoodleData());
+
+  async function loadMoodleData() {
     const btn = $("#moodleLoad");
     let url;
 
     if (moodleView === "courses") {
       url = "/api/moodle/courses";
+      await loadCategories();
     } else if (moodleView === "users") {
       const key = $("#moodleUserKey").value;
       const value = $("#moodleUserValue").value.trim();
@@ -687,18 +984,21 @@
 
       // Danh sách khóa học Moodle rất nhiều cột, chỉ giữ cột cần nhìn
       if (moodleView === "courses") {
+        moodleSiteUrl = (body.data.siteUrl || "").replace(/\/+$/, "");
         items = items.map((c) => ({
           id: c.id,
           shortname: c.shortname,
           fullname: c.fullname,
           idnumber: c.idnumber,
           categoryid: c.categoryid,
+          danhMuc: categories.byId.get(c.categoryid)?.name || "",
           visible: c.visible,
-          format: c.format,
         }));
       }
 
+      moodleTable.setColumns(moodleView === "courses" ? COURSE_COLUMNS : null);
       moodleTable.setRows(items, "moodle_" + moodleView);
+      applyCourseFilters();
       toast(`Moodle ${moodleView}: ${items.length} dòng`, "ok");
     } catch (err) {
       moodleTable.setMessage('<p class="empty">Không gọi được service.</p>');
@@ -706,9 +1006,180 @@
     } finally {
       btn.classList.remove("is-busy");
     }
-  });
+  }
 
   $("#moodleExport").addEventListener("click", () => moodleTable.exportCSV());
+
+  // ==================== GỘP LỚP TRÊN MOODLE ====================
+
+  const mergeLog = createResultLog("#mergeResult");
+
+  function selectedCourses() {
+    return moodleTable.getSelected();
+  }
+
+  function updateMergeBar(selected) {
+    if (moodleView !== "courses") return;
+
+    const n = selected.length;
+
+    $("#mergeCount").textContent = n
+      ? `Đã chọn ${n} lớp — luôn hiện ở đầu bảng dù đang lọc`
+      : "Chưa chọn lớp nào";
+
+    // Thẻ có nút ✕ để bỏ từng lớp, khỏi phải đi tìm lại dòng đó trong bảng
+    $("#mergeList").innerHTML = selected
+      .map(
+        (c) =>
+          `<span class="chip" title="${esc(c.fullname)}">${esc(c.shortname)}` +
+          `<button type="button" data-unpick="${esc(c.id)}" title="Bỏ chọn lớp này">✕</button></span>`
+      )
+      .join("");
+
+    $$("#mergeList [data-unpick]").forEach((btn) =>
+      btn.addEventListener("click", () => moodleTable.deselect(btn.dataset.unpick))
+    );
+
+    $("#mergeOpen").disabled = n < 2;
+
+    // Đang lọc "chỉ lớp đã chọn" thì bỏ chọn phải làm bảng cập nhật theo
+    if ($("#moodleOnlySelected").checked) applyCourseFilters();
+  }
+
+  function closeMergeForm() {
+    $("#mergeForm").hidden = true;
+  }
+
+  function fillCategorySelect(selectedId) {
+    const options = categories.items.length
+      ? categories.items.map(
+          (c) => `<option value="${c.id}">${esc(c.name)} (id ${c.id})</option>`
+        )
+      : [`<option value="${esc(selectedId)}">Danh mục ${esc(selectedId)}</option>`];
+
+    $("#mergeCategory").innerHTML = options.join("");
+    $("#mergeCategory").value = String(selectedId ?? "");
+  }
+
+  // Bảng tóm tắt các lớp nguồn và số thành viên sau khi hợp nhất
+  function renderMergePreview(data) {
+    const rows = data.sources.map((s) => ({
+      "Course id": s.id,
+      "Mã lớp": s.shortname,
+      "Tên lớp": s.fullname,
+      "Thành viên": s.memberCount,
+      "Sinh viên": s.studentCount,
+      "Giảng viên": s.teacherCount,
+    }));
+
+    const byRole = Object.entries(data.members.byRole)
+      .map(([label, count]) => `${label}: ${count}`)
+      .join(" · ");
+
+    $("#mergePreview").innerHTML =
+      miniTable(rows, 20) +
+      `<p class="hint" style="margin-top:10px">Lớp mới sẽ có <strong>${data.members.unique}</strong> thành viên` +
+      (data.members.duplicated
+        ? ` (${data.members.duplicated} lượt trùng đã được hợp nhất)`
+        : "") +
+      (byRole ? ` — ${esc(byRole)}` : "") +
+      "</p>";
+  }
+
+  $("#mergeClear").addEventListener("click", () => {
+    moodleTable.clearSelection();
+    closeMergeForm();
+  });
+
+  $("#mergeCancel").addEventListener("click", closeMergeForm);
+
+  $("#mergeOpen").addEventListener("click", async () => {
+    const selected = selectedCourses();
+    if (selected.length < 2) return toast("Chọn ít nhất 2 lớp để gộp", "err");
+
+    const btn = $("#mergeOpen");
+    btn.classList.add("is-busy");
+
+    try {
+      const { body } = await postJSON("/api/moodle/courses/merge/preview", {
+        sourceCourseIds: selected.map((c) => c.id),
+      });
+
+      if (!body?.success) {
+        return toast(body?.message || "Không xem trước được", "err");
+      }
+
+      const data = body.data;
+      renderMergePreview(data);
+
+      $("#mergeFullname").value = data.suggestion.fullname;
+      $("#mergeShortname").value = data.suggestion.shortname;
+      $("#mergeIdnumber").value = data.suggestion.idnumber || "";
+      fillCategorySelect(data.suggestion.categoryid);
+
+      mergeLog.reset();
+      $("#mergeForm").hidden = false;
+      $("#mergeFullname").focus();
+    } catch (err) {
+      toast("Không gọi được service", "err");
+    } finally {
+      btn.classList.remove("is-busy");
+    }
+  });
+
+  $("#mergeRun").addEventListener("click", async () => {
+    const selected = selectedCourses();
+    if (selected.length < 2) return toast("Chọn ít nhất 2 lớp để gộp", "err");
+
+    const fullname = $("#mergeFullname").value.trim();
+    const shortname = $("#mergeShortname").value.trim();
+
+    if (!fullname) {
+      toast("Nhập tên lớp mới", "err");
+      return $("#mergeFullname").focus();
+    }
+    if (!shortname) {
+      toast("Nhập mã lớp mới", "err");
+      return $("#mergeShortname").focus();
+    }
+
+    const deleteSources = $("#mergeDeleteSources").checked;
+    const names = selected.map((c) => c.shortname).join("\n  • ");
+
+    const warning = deleteSources
+      ? `\n\nCÁC LỚP NGUỒN SẼ BỊ XÓA cùng toàn bộ nội dung, bài nộp và điểm. Thao tác này KHÔNG hoàn tác được.`
+      : "\n\nLớp nguồn được giữ nguyên.";
+
+    if (
+      !confirm(
+        `Gộp ${selected.length} lớp:\n  • ${names}\n\nthành lớp mới "${shortname}" — ${fullname}${warning}`
+      )
+    ) {
+      return;
+    }
+
+    const res = await runSync(
+      $("#mergeRun"),
+      `Gộp lớp → ${shortname}`,
+      "/api/moodle/courses/merge",
+      {
+        sourceCourseIds: selected.map((c) => c.id),
+        fullname,
+        shortname,
+        idnumber: $("#mergeIdnumber").value.trim(),
+        categoryid: $("#mergeCategory").value,
+        copySections: $("#mergeCopySections").checked,
+        deleteSources,
+        confirm: true,
+      },
+      mergeLog
+    );
+
+    // Gộp xong thì danh sách lớp đã đổi, tải lại để nhìn đúng hiện trạng
+    if (res && res.body?.data?.targetCourse) {
+      await loadMoodleData();
+    }
+  });
 
   // ==================== khởi tạo ====================
 

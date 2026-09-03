@@ -325,6 +325,64 @@ class MoodleService {
     }
   }
 
+  // Lấy nhiều course theo id trong một lần gọi
+  async getCoursesByIds(courseIds = []) {
+    try {
+      if (!courseIds.length) return [];
+
+      const result = await this.callWebService('core_course_get_courses_by_field', {
+        field: 'ids',
+        value: courseIds.join(',')
+      });
+
+      return (result && result.courses) || [];
+    } catch (error) {
+      logger.error('Error getting courses by ids:', error);
+      throw error;
+    }
+  }
+
+  // Đăng ký nhiều user vào course trong một lần gọi.
+  // enrolments: [{ userId, courseId, roleId }]
+  async enrolUsers(enrolments = []) {
+    try {
+      if (!enrolments.length) return 0;
+
+      const params = {};
+      enrolments.forEach((item, index) => {
+        params[`enrolments[${index}][roleid]`] = item.roleId;
+        params[`enrolments[${index}][userid]`] = item.userId;
+        params[`enrolments[${index}][courseid]`] = item.courseId;
+      });
+
+      await this.callWebService('enrol_manual_enrol_users', params);
+      logger.info(`Enrolled ${enrolments.length} enrolment(s) in batch`);
+      return enrolments.length;
+    } catch (error) {
+      logger.error('Error enrolling users in batch:', error);
+      throw error;
+    }
+  }
+
+  // Xóa nhiều course trong một lần gọi. Trả về danh sách warning của Moodle.
+  async deleteCourses(courseIds = []) {
+    try {
+      if (!courseIds.length) return [];
+
+      const params = {};
+      courseIds.forEach((id, index) => {
+        params[`courseids[${index}]`] = id;
+      });
+
+      const result = await this.callWebService('core_course_delete_courses', params);
+      logger.warn(`Deleted courses in Moodle: ${courseIds.join(', ')}`);
+      return (result && result.warnings) || [];
+    } catch (error) {
+      logger.error('Error deleting courses in Moodle:', error);
+      throw error;
+    }
+  }
+
   // Đăng ký user vào course
   // DONE
   async enrollUserToCourse(userId, courseId, roleId = 5, moodleUser, moodleCourse) {

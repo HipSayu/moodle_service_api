@@ -202,6 +202,22 @@
 
     <!-- bộ lọc riêng cho từng view -->
     <div class="toolbar" id="moodleToolbar">
+      <div class="toolbar-slot" data-for="courses">
+        <input id="moodleCourseSearch" class="filter-input filter-lg" type="text"
+               placeholder="Tìm theo shortname, tên lớp hoặc idnumber..." autocomplete="off">
+        <select id="moodleCourseCategory" class="select">
+          <option value="">Tất cả danh mục</option>
+        </select>
+        <select id="moodleCourseVisible" class="select">
+          <option value="">Hiện và ẩn</option>
+          <option value="1">Đang hiện</option>
+          <option value="0">Đang ẩn</option>
+        </select>
+        <label class="inline-check">
+          <input type="checkbox" id="moodleOnlySelected"> Chỉ lớp đã chọn
+        </label>
+      </div>
+
       <div class="toolbar-slot" data-for="users">
         <select id="moodleUserKey" class="select">
           <option value="auth">auth</option>
@@ -232,9 +248,71 @@
 
     <p class="hint" id="moodleHint"></p>
 
+    <!-- thanh gộp lớp, chỉ hiện ở view Khóa học -->
+    <div class="merge-bar" id="mergeBar" hidden>
+      <div class="merge-bar-info">
+        <strong id="mergeCount">Chưa chọn lớp nào</strong>
+        <span id="mergeList" class="merge-list"></span>
+      </div>
+      <button id="mergeClear" class="btn btn-ghost btn-sm" type="button">Bỏ chọn</button>
+      <button id="mergeOpen" class="btn btn-primary" type="button" disabled>Gộp lớp đã chọn</button>
+    </div>
+
     <div id="moodleTable" class="table-wrap">
       <p class="empty">Bấm <strong>Tải dữ liệu</strong>.</p>
     </div>
+
+    <!-- form gộp lớp -->
+    <section class="merge-form" id="mergeForm" hidden>
+      <div class="merge-form-head">
+        <h3>Gộp lớp thành một lớp mới</h3>
+        <button id="mergeCancel" class="btn btn-ghost btn-sm" type="button">Đóng</button>
+      </div>
+
+      <p class="warn-note">
+        Chỉ <strong>thành viên</strong> được chuyển sang lớp mới (giữ nguyên vai trò, người ở cả hai lớp chỉ vào một lần).
+        Nội dung, bài tập, bài nộp và điểm của lớp nguồn <strong>không chuyển được</strong> và sẽ mất khi xóa lớp nguồn.
+        Nếu còn thành viên chuyển lỗi, hệ thống tự động <strong>không xóa</strong> lớp nguồn.
+      </p>
+
+      <div id="mergePreview" class="merge-preview"></div>
+
+      <div class="merge-fields">
+        <label class="field">
+          <span>Tên lớp mới (fullname) *</span>
+          <input id="mergeFullname" type="text" placeholder="Tên đầy đủ của lớp gộp">
+        </label>
+        <label class="field">
+          <span>Mã lớp mới (shortname) *</span>
+          <input id="mergeShortname" type="text" placeholder="Duy nhất trên Moodle">
+        </label>
+        <label class="field">
+          <span>Idnumber (tùy chọn)</span>
+          <input id="mergeIdnumber" type="text" placeholder="Để trống nếu không dùng">
+        </label>
+        <label class="field">
+          <span>Danh mục</span>
+          <select id="mergeCategory" class="select"></select>
+        </label>
+      </div>
+
+      <div class="merge-options">
+        <label class="inline-check">
+          <input type="checkbox" id="mergeCopySections" checked> Sao chép tên các section của lớp nguồn
+        </label>
+        <label class="inline-check">
+          <input type="checkbox" id="mergeDeleteSources" checked> Xóa lớp nguồn sau khi gộp
+        </label>
+      </div>
+
+      <div class="merge-actions">
+        <button id="mergeRun" class="btn btn-primary" type="button" data-action="merge">Gộp lớp</button>
+      </div>
+
+      <div id="mergeResult" class="result-body">
+        <p class="empty">Chưa chạy tác vụ nào.</p>
+      </div>
+    </section>
   </section>
 
 </main>

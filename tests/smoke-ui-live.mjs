@@ -185,6 +185,11 @@ check('Dataset lạ -> 404', badDataset.status === 404);
 // Tab Dữ liệu Moodle
 const mc = await call('GET', '/api/moodle/courses');
 check('Moodle · Khóa học', mc.status === 200 && mc.body?.data?.items?.[0]?.shortname === `LHP1_${TEN_DOT}`);
+// Giao diện dựng link "mở lớp trên Moodle" từ siteUrl này
+check('Moodle · Khóa học kèm siteUrl', typeof mc.body?.data?.siteUrl === 'string' && mc.body.data.siteUrl.startsWith('http'), mc.body?.data?.siteUrl);
+
+const mcat = await call('GET', '/api/moodle/categories');
+check('Moodle · Danh mục', mcat.status === 200 && mcat.body?.data?.items?.[0]?.name === 'BM Phan mem');
 
 const mu = await call('GET', '/api/moodle/users?key=auth&value=manual');
 check('Moodle · Người dùng', mu.status === 200 && mu.body?.data?.items?.[0]?.idnumber === '1653965');

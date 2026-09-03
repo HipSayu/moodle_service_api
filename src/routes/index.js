@@ -69,6 +69,13 @@ router.get("/reports/locked-grades", h(reportController.exportLockedGrades));
 router.get("/moodle/site-info", h(moodleController.getSiteInfo));
 router.get("/moodle/functions", h(moodleController.getFunctions));
 router.get("/moodle/courses", h(moodleController.listCourses));
+router.get("/moodle/categories", h(moodleController.listCategories));
+
+// Gộp nhiều lớp thành một lớp mới. Đăng ký trước route có :courseId
+// để "merge" không bị hiểu nhầm là một course id.
+router.post("/moodle/courses/merge/preview", h(moodleController.previewMergeCourses));
+router.post("/moodle/courses/merge", h(moodleController.mergeCourses));
+
 router.get("/moodle/users", h(moodleController.listUsers));
 router.get("/moodle/courses/:courseId/users", h(moodleController.listCourseUsers));
 

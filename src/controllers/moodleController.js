@@ -1,7 +1,13 @@
 import moodleService from "../services/moodleService.js";
 import syncToMoodleService from "../services/syncToMoodleService.js";
+import courseMergeService from "../services/courseMergeService.js";
+import config from "../config/index.js";
 import { ok, fail, syncResult } from "../utils/response.js";
 import { getInt, getParam, getBool } from "../utils/requestParams.js";
+
+// Danh sách course id cần gộp. Nhận cả mảng JSON lẫn chuỗi "12,13"
+const getCourseIds = (req) =>
+  req.body?.sourceCourseIds ?? req.query?.sourceCourseIds ?? null;
 
 // Thông tin site + quyền của token đang dùng
 const getSiteInfo = async (req, res) => {
@@ -18,7 +24,8 @@ const getFunctions = async (req, res) => {
   });
 };
 
-// Danh sách khóa học trên Moodle
+// Danh sách khóa học trên Moodle.
+// Kèm siteUrl để giao diện dựng được link mở lớp trên Moodle.
 const listCourses = async (req, res) => {
   const limit = getInt(req, "limit");
   const courses = await moodleService.getCourses();
@@ -26,7 +33,71 @@ const listCourses = async (req, res) => {
 
   return ok(res, {
     message: `Lấy ${items.length}/${courses.length} khóa học từ Moodle`,
-    data: { total: courses.length, returned: items.length, items },
+    data: {
+      siteUrl: config.moodle.url,
+      total: courses.length,
+      returned: items.length,
+      items,
+    },
+  });
+};
+
+// Danh sách category (khoa / bộ môn) trên Moodle
+const listCategories = async (req, res) => {
+  const categories = await moodleService.getCategories();
+  const items = (categories || []).map((c) => ({
+    id: c.id,
+    name: c.name,
+    idnumber: c.idnumber,
+    parent: c.parent,
+    coursecount: c.coursecount,
+    visible: c.visible,
+  }));
+
+  return ok(res, {
+    message: `Lấy ${items.length} danh mục từ Moodle`,
+    data: { total: items.length, items },
+  });
+};
+
+// Xem trước kết quả gộp lớp: thành viên hợp nhất, số người trùng, gợi ý tên lớp mới
+const previewMergeCourses = async (req, res) => {
+  const data = await courseMergeService.previewMerge({
+    sourceCourseIds: getCourseIds(req),
+  });
+
+  return ok(res, {
+    message: `Gộp ${data.sources.length} lớp sẽ được ${data.members.unique} thành viên (${data.members.duplicated} lượt trùng)`,
+    data,
+  });
+};
+
+// Gộp nhiều lớp thành một lớp mới rồi xóa lớp nguồn.
+// Xóa lớp không hoàn tác được nên bắt xác nhận rõ ràng.
+const mergeCourses = async (req, res) => {
+  const deleteSources = getBool(req, "deleteSources", true);
+
+  if (deleteSources && !getBool(req, "confirm")) {
+    return fail(res, {
+      message:
+        "Gộp lớp sẽ XÓA các lớp nguồn cùng toàn bộ nội dung, bài nộp và điểm của chúng. Gửi confirm=true để xác nhận, hoặc deleteSources=false để giữ lại lớp nguồn.",
+    });
+  }
+
+  const data = await courseMergeService.mergeCourses({
+    sourceCourseIds: getCourseIds(req),
+    fullname: getParam(req, "fullname"),
+    shortname: getParam(req, "shortname"),
+    idnumber: getParam(req, "idnumber"),
+    categoryid: getInt(req, "categoryid"),
+    summary: getParam(req, "summary"),
+    copySections: getBool(req, "copySections", true),
+    deleteSources,
+  });
+
+  return syncResult(res, {
+    message: `Đã tạo lớp "${data.targetCourse.shortname}" (id ${data.targetCourse.id}), chuyển ${data.succeeded}/${data.total} thành viên, xóa ${data.deletedCourseIds.length}/${data.sources.length} lớp nguồn`,
+    data,
   });
 };
 
@@ -177,6 +248,9 @@ export default {
   getSiteInfo,
   getFunctions,
   listCourses,
+  listCategories,
+  previewMergeCourses,
+  mergeCourses,
   listUsers,
   listCourseUsers,
   listCourseQuizzes,
