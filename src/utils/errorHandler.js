@@ -77,6 +77,26 @@ const handleUncaughtException = () => {
 const asyncHandler = (fn) => (req, res, next) =>
   Promise.resolve(fn(req, res, next)).catch(next);
 
+// Lỗi do dữ liệu sai thì thử lại bao nhiêu lần cũng hỏng.
+// Chạy 5000 bản ghi mà mỗi bản ghi retry 3 lần kèm chờ 2s + 4s là mất hàng giờ vô ích.
+const PERMANENT_ERROR_PATTERNS = [
+  'invalid parameter value detected',
+  'invalidparameter',
+  'invalid email',
+  'email không hợp lệ',
+  'usernametaken',
+  'emailtaken',
+  'idnumbertaken',
+  'shortnametaken',
+  'invalidusername',
+  'passwordpolicy'
+];
+
+const isPermanentError = (error) => {
+  const message = String(error?.message ?? '').toLowerCase();
+  return PERMANENT_ERROR_PATTERNS.some((pattern) => message.includes(pattern));
+};
+
 // Thử lại thao tác có thể lỗi tạm thời, giãn cách tăng dần
 const retryOperation = async (operation, maxRetries = 3, delay = 1000) => {
   let lastError;
@@ -86,6 +106,12 @@ const retryOperation = async (operation, maxRetries = 3, delay = 1000) => {
       return await operation();
     } catch (error) {
       lastError = error;
+
+      // Sai dữ liệu thì trả lỗi ngay, khỏi chờ rồi hỏng lại y hệt
+      if (isPermanentError(error)) {
+        throw error;
+      }
+
       logger.warn(`Thao tác lỗi, lần thử ${i + 1}/${maxRetries}: ${error.message}`);
 
       if (i < maxRetries - 1) {

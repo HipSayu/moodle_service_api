@@ -517,3 +517,5 @@ tbody tr.is-selected { background: #eef4fb; }
 }
 
 .select-khoa { max-width: 230px; }
+
+.select-dot { min-width: 230px; }

@@ -140,7 +140,7 @@ check(
 const dsList = await call('GET', '/api/data');
 check(
   'Danh sách dataset',
-  dsList.status === 200 && dsList.body?.data?.datasets?.length === 8,
+  dsList.status === 200 && dsList.body?.data?.datasets?.length === 10,
   `${dsList.body?.data?.datasets?.length} dataset`
 );
 

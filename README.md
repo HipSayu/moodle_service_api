@@ -33,7 +33,9 @@ npm run smoke
 Trang quản trị tĩnh trong `public/`, Express tự phục vụ ở `/`. Không cần build,
 không phụ thuộc thư viện ngoài nên chạy được cả khi máy chủ không có internet.
 
-Ô **Học kỳ (tenDot)** ở thanh trên áp dụng cho mọi thao tác và được nhớ lại giữa các lần mở trang.
+Ô **Học kỳ (đợt)** ở thanh trên là dropdown lấy từ `DM_Dot` (mới nhất lên đầu, ghi kèm số lớp
+và đợt nào đang mở đăng ký), áp dụng cho mọi thao tác và được nhớ lại giữa các lần mở trang.
+Mặc định chọn đợt đang hoạt động (`IsActive`).
 Ô **Khóa** ngay cạnh liệt kê các khóa có lớp trong đợt đó (kèm số lớp học phần); chọn một khóa
 thì các nút "Toàn bộ đợt" và tab Dữ liệu Core chỉ chạy trong phạm vi khóa đó, để chia đợt lớn
 thành K70 / K71... chạy lần lượt. Để trống là chạy cả đợt như trước.
@@ -41,7 +43,7 @@ thành K70 / K71... chạy lần lượt. Để trống là chạy cả đợt n
 **Tab Đồng bộ** — mỗi nghiệp vụ một thẻ, hai nút: *Toàn bộ đợt* (có hỏi xác nhận) và
 *Một đối tượng* (nhập mã). Khi chạy có bộ đếm giây, mọi nút bị khóa để tránh gọi chồng.
 Kết quả hiện ngay dưới: số liệu tổng/thành công/bỏ qua/lỗi, bảng lỗi, chi tiết từng dòng,
-đường dẫn file CSV. Các lần chạy xếp chồng, mới nhất lên trên.
+đường dẫn file CSV và Excel. Các lần chạy xếp chồng, mới nhất lên trên.
 
 **Tab Dữ liệu Core** — đọc trực tiếp từ SQL Server: sinh viên, giảng viên, lớp học phần,
 đăng ký học phần, phân công giảng dạy, điểm, khoa/bộ môn.
@@ -57,6 +59,36 @@ tự có ngay, không phải sửa gì. Kèm theo là chọn cột sắp xếp, 
 - *Thành viên lớp*: nhập Moodle course ID rồi lọc theo vai trò — Moodle không phân loại sinh viên/giảng viên ở cấp hệ thống mà theo vai trò trong từng khóa học
 
 Mọi bảng đều có ô lọc, phân trang 50 dòng và nút **Tải CSV** (xuất đúng phần đang lọc, kèm BOM để Excel đọc đúng tiếng Việt).
+
+## Theo dõi khi đang chạy
+
+Terminal chạy service in tiến độ định kỳ cho cả 5 bước đồng bộ, không còn cảnh im lặng
+hàng phút không biết treo hay chưa:
+
+```
+>> [Sinh viên · khóa Khóa 71 (2026) - đợt HK1 2026-2027] bắt đầu — 116 bản ghi
+>> [Sinh viên · khóa Khóa 71 (2026) - đợt HK1 2026-2027] 60/116 (52%) | Tạo mới 55, Cập nhật 5 | 3.2/s | còn ~18s
+>> [Sinh viên · khóa Khóa 71 (2026) - đợt HK1 2026-2027] XONG sau 36s — Tạo mới 110, Cập nhật 6
+```
+
+Mỗi dòng có số đã xử lý/tổng, phần trăm, phân loại kết quả, tốc độ và thời gian còn lại.
+Bộ đếm tự căn để in khoảng 20 dòng mỗi lần chạy (tối đa mỗi 100 bản ghi) — xem
+[progress.js](src/utils/progress.js). Log này cũng ghi vào `logs/sync-<ngày>.log`.
+
+## File kết quả
+
+Mỗi lần chạy xuất hai định dạng:
+
+| Nơi lưu | Nội dung |
+|---|---|
+| `logs/csv/` | CSV như trước; riêng đăng ký khi chạy cả đợt được tách theo từng lớp học phần |
+| `logs/excel/` | **Một file .xlsx cho cả lần chạy**, 2 sheet |
+| `logs/reports/` | Báo cáo khóa điểm (không đổi) |
+
+File Excel gồm sheet **Tổng hợp** (phạm vi chạy, tổng số dòng, đếm theo trạng thái /
+hành động / từng lớp học phần) và sheet **Chi tiết** (toàn bộ bản ghi, cố định dòng tiêu đề,
+bật sẵn AutoFilter, tô màu theo trạng thái — đỏ cho lỗi, xanh cho thành công, xám cho bỏ qua)
+nên mở ra là lọc ngay được các dòng lỗi.
 
 ## Khuôn response
 
@@ -80,6 +112,7 @@ Kết quả của tác vụ đồng bộ luôn có các trường:
 | `errors` | Chi tiết lỗi, tối đa 50 bản ghi |
 | `details` | Chi tiết từng dòng — chỉ có khi lọc theo một đối tượng cụ thể |
 | `csvFile` / `csvFiles` | Đường dẫn file CSV kết quả trong `logs/csv/` |
+| `excelFile` | File Excel kết quả trong `logs/excel/` — có sheet Tổng hợp và sheet Chi tiết |
 
 Mã HTTP:
 
@@ -121,6 +154,34 @@ Mã HTTP:
 | POST | `/api/sync/courses/:maLopHocPhan` | Một lớp học phần |
 | POST | `/api/sync/grades` | Điểm tổng kết → assignment cuối kỳ |
 | POST | `/api/sync/all` | Chạy tuần tự cả 5 bước |
+
+Sinh viên **trống Email** trong `DT_SinhVien` vẫn được tạo tài khoản: email dựng theo
+mẫu `<MaSinhVien>@<STUDENT_EMAIL_DOMAIN>` (mặc định `.st.huce.edu.vn`, ví dụ
+`1083471@.st.huce.edu.vn`). Các dòng này được đánh dấu `Tự sinh` ở cột *Email Tự Sinh*
+trong CSV/Excel, và cuối mỗi lần chạy có dòng cảnh báo đếm số em bị thiếu email để
+nhập bù vào dữ liệu gốc.
+
+**Tạo tài khoản cho cả khóa mới nhập học.** Mặc định `/api/sync/students` chỉ lấy sinh viên
+**đã đăng ký học phần** trong đợt (vì đi qua `DT_DangKyHocPhan`), nên khóa vừa nhập học
+gần như chưa em nào được tạo tài khoản. Thêm `toanKhoa=true` để lấy theo **hồ sơ khóa**
+(`DT_SinhVien.IDKhoaHoc`), gồm cả em chưa đăng ký môn nào:
+
+```bash
+curl -X POST localhost:3000/api/sync/students -H 'Content-Type: application/json' \
+  -d '{"tenDot":"HK1 2026-2027","khoaHoc":"71","toanKhoa":true}'
+```
+
+| Tham số | Mặc định | Ý nghĩa |
+|---|---|---|
+| `toanKhoa` | `false` | `true` → lấy theo hồ sơ khóa thay vì qua đăng ký học phần |
+| `chiDangHoc` | `true` | Chỉ sinh viên trạng thái *Đang học*; `false` lấy cả em đã nghỉ |
+
+Chế độ này **bắt buộc chọn khóa** — không có khóa thì phạm vi là toàn bộ sinh viên của
+trường (hơn 91.000 em) nên bị chặn ở 400. Trên giao diện: tích *Toàn khóa theo hồ sơ*
+ở thẻ Sinh viên sau khi đã chọn Khóa ở thanh trên.
+
+Ví dụ chênh lệch thực tế với khóa 71 ở `HK1 2026-2027`: mặc định 1.587 em (đã đăng ký
+học phần), `toanKhoa=true` được 5.421 em (toàn bộ hồ sơ khóa).
 
 ### Chạy theo khóa (K70, K71...)
 
@@ -184,7 +245,7 @@ Vai trò trên Moodle: sinh viên = 5, giảng viên chính = 3, trợ giảng =
 | GET | `/api/data/:dataset` | Truy vấn dữ liệu |
 
 Tập dữ liệu: `students`, `teachers`, `courses`, `student-enrollments`,
-`teacher-enrollments`, `grades`, `cohorts`, `categories`.
+`teacher-enrollments`, `grades`, `cohorts`, `cohort-students`, `terms`, `categories`.
 
 `cohorts` liệt kê các khóa có lớp trong đợt kèm số lớp học phần — dùng để biết đợt
 đang chạy những khóa nào trước khi đồng bộ.
@@ -348,8 +409,10 @@ src/
     errorHandler.js         Middleware lỗi, retry
     logger.js               Winston, log xoay theo ngày
     csvHelper.js            Ghi CSV kết quả
+    excelHelper.js          Ghi Excel kết quả (sheet Tổng hợp + Chi tiết)
+    progress.js             Bộ đếm tiến độ in ra terminal khi chạy dài
 tests/                      Smoke test không cần DB/Moodle
-logs/                       Log, CSV kết quả, báo cáo Excel
+logs/                       Log chạy, CSV + Excel kết quả đồng bộ, báo cáo Excel
 ```
 
 ## Phụ thuộc phía Moodle

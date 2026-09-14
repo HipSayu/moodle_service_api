@@ -40,6 +40,10 @@ const config = {
   sync: {
     enableAutoSync: process.env.ENABLE_AUTO_SYNC === 'true',
     tenDot: process.env.SYNC_TEN_DOT || '',
+
+    // Sinh viên trong DT_SinhVien khá nhiều em trống Email. Thiếu email thì
+    // dựng theo mẫu <MaSinhVien>@<domain> để vẫn tạo được tài khoản Moodle.
+    studentEmailDomain: process.env.STUDENT_EMAIL_DOMAIN || '.st.huce.edu.vn',
     cronTime: process.env.SYNC_CRON_TIME || '0 0 2 * * *',
     timezone: process.env.SYNC_TIMEZONE || 'Asia/Ho_Chi_Minh'
   },

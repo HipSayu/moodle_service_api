@@ -169,6 +169,46 @@ const COHORTS_SQL = `
   GROUP BY kh.Id, kh.TenKhoaHoc, kh.Nam, d.TenDot
 `;
 
+const COHORT_STUDENTS_SQL = `
+  SELECT
+    sv.MaSinhVien,
+    sv.HoDem,
+    sv.Ten,
+    sv.HoDem + ' ' + sv.Ten AS HoTenSinhVien,
+    sv.Email,
+    sv.NguyenQuan,
+    lop.MaLopChu AS MaLop,
+    lop.TenLop,
+    sv.IDKhoaHoc,
+    kh.TenKhoaHoc,
+    sv.TrangThai,
+    tt.TenTrangThai,
+    sv.NamVao,
+    sv.NgayNhapHoc,
+    sv.NgayCapNhat AS NgayCapNhatSinhVien
+  FROM dbo.DT_SinhVien sv WITH (NOLOCK)
+  INNER JOIN dbo.DM_KhoaHoc kh WITH (NOLOCK) ON kh.Id = sv.IDKhoaHoc
+  LEFT JOIN dbo.DM_LopHoc lop WITH (NOLOCK) ON lop.Id = sv.IDLopHoc
+  LEFT JOIN dbo.DM_TrangThaiSinhVien tt WITH (NOLOCK) ON tt.Id = sv.TrangThai
+  WHERE ISNULL(sv.IsDelete, 0) = 0
+    AND (@idKhoaHoc = -1 OR sv.IDKhoaHoc = @idKhoaHoc)
+`;
+
+const TERMS_SQL = `
+  SELECT
+    d.Id AS IDDot,
+    d.TenDot,
+    d.TenDayDu,
+    d.IsActive,
+    d.IsDangKyHocPhan,
+    COUNT(lhoc.Id) AS SoLopHoc
+  FROM dbo.DM_Dot d WITH (NOLOCK)
+  LEFT JOIN dbo.TKB_LopHoc lhoc WITH (NOLOCK) ON lhoc.IDDot = d.Id
+  WHERE ISNULL(d.IsDelete, 0) = 0
+    AND ISNULL(d.IsVisible, 1) = 1
+  GROUP BY d.Id, d.TenDot, d.TenDayDu, d.IsActive, d.IsDangKyHocPhan
+`;
+
 const CATEGORIES_SQL = `SELECT * FROM TMP_DsBoMonKhoa`;
 
 const col = (name, type = "string", label = null) => ({ name, type, label });
@@ -289,6 +329,49 @@ const DATASETS = {
       col("IDKhoaHoc", "number", "ID khóa"),
       col("TenKhoaHoc", "string", "Khóa"),
       col("NgayCapNhat", "date", "Ngày cập nhật"),
+    ],
+  },
+
+  terms: {
+    label: "Đợt / Học kỳ",
+    // Danh sách đợt để giao diện đổ vào dropdown, khỏi phải gõ tay tên đợt
+    requireTenDot: false,
+    sql: TERMS_SQL,
+    defaultSort: "IDDot",
+    columns: [
+      col("IDDot", "number", "ID đợt"),
+      col("TenDot", "string", "Tên đợt"),
+      col("TenDayDu", "string", "Tên đầy đủ"),
+      col("IsActive", "bool", "Đang hoạt động"),
+      col("IsDangKyHocPhan", "bool", "Đang mở đăng ký"),
+      col("SoLopHoc", "number", "Số lớp học"),
+    ],
+  },
+
+  "cohort-students": {
+    label: "Sinh viên theo khóa",
+    // Lấy thẳng từ hồ sơ sinh viên nên KHÔNG cần đợt và không cần đăng ký học phần.
+    // Dùng khi phải tạo sẵn tài khoản cho sinh viên mới nhập học.
+    requireTenDot: false,
+    khoaHocFilter: true,
+    sql: COHORT_STUDENTS_SQL,
+    defaultSort: "MaSinhVien",
+    columns: [
+      col("MaSinhVien", "string", "Mã sinh viên"),
+      col("HoDem", "string", "Họ đệm"),
+      col("Ten", "string", "Tên"),
+      col("HoTenSinhVien", "string", "Họ tên"),
+      col("Email", "string", "Email"),
+      col("NguyenQuan", "string", "Nguyên quán"),
+      col("MaLop", "string", "Lớp danh nghĩa"),
+      col("TenLop", "string", "Tên lớp"),
+      col("IDKhoaHoc", "number", "ID khóa"),
+      col("TenKhoaHoc", "string", "Khóa"),
+      col("TrangThai", "number", "Mã trạng thái"),
+      col("TenTrangThai", "string", "Trạng thái"),
+      col("NamVao", "number", "Năm vào"),
+      col("NgayNhapHoc", "date", "Ngày nhập học"),
+      col("NgayCapNhatSinhVien", "date", "Ngày cập nhật"),
     ],
   },
 

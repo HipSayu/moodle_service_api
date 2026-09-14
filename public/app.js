@@ -53,7 +53,7 @@
   function requireTenDot() {
     const v = getTenDot();
     if (!v) {
-      toast("Nhập học kỳ (tenDot) ở thanh trên trước, ví dụ: HK1 2026-2027", "err");
+      toast("Chọn học kỳ (đợt) ở thanh trên trước", "err");
       $("#tenDot").focus();
       return null;
     }
@@ -114,7 +114,49 @@
     });
   });
 
-  // ==================== health ====================
+  // ==================== đợt / học kỳ ====================
+
+  // Danh sách đợt lấy từ DM_Dot. Trước đây phải gõ tay tên đợt, lệch một ký tự
+  // là mọi truy vấn trả về rỗng mà không biết vì sao.
+  async function loadTerms() {
+    const sel = $("#tenDot");
+    const saved = localStorage.getItem(TEN_DOT_KEY) || "";
+
+    try {
+      const { body } = await api("/api/data/terms?sort=IDDot&order=desc&limit=200");
+      if (!body?.success) {
+        sel.innerHTML = `<option value="">${esc(body?.message || "Không lấy được danh sách đợt")}</option>`;
+        return;
+      }
+
+      const items = body.data.items || [];
+      if (items.length === 0) {
+        sel.innerHTML = '<option value="">Không có đợt nào</option>';
+        return;
+      }
+
+      sel.innerHTML = items
+        .map((t) => {
+          const notes = [];
+          if (t.IsDangKyHocPhan) notes.push("đang mở ĐK");
+          if (t.SoLopHoc) notes.push(`${t.SoLopHoc} lớp`);
+          const suffix = notes.length ? ` — ${notes.join(", ")}` : "";
+          return `<option value="${esc(t.TenDot)}">${esc(t.TenDot)}${esc(suffix)}</option>`;
+        })
+        .join("");
+
+      // Ưu tiên đợt đã chọn lần trước, rồi tới đợt đang hoạt động, cuối cùng là đợt mới nhất
+      const active = items.find((t) => t.IsActive);
+      const pick = items.some((t) => t.TenDot === saved)
+        ? saved
+        : (active || items[0]).TenDot;
+
+      sel.value = pick;
+      localStorage.setItem(TEN_DOT_KEY, pick);
+    } catch {
+      sel.innerHTML = '<option value="">Không gọi được service</option>';
+    }
+  }
 
   // ==================== khóa (K70, K71...) ====================
 
@@ -159,6 +201,8 @@
   $("#khoaHoc").addEventListener("change", () =>
     localStorage.setItem(KHOA_HOC_KEY, getKhoaHoc())
   );
+
+  // ==================== health ====================
 
   $("#healthBtn").addEventListener("click", async () => {
     const dot = $("#healthDot");
@@ -581,6 +625,7 @@
     }
 
     if (data.csvFile) html += `<p class="csv-path">CSV: ${esc(data.csvFile)}</p>`;
+    if (data.excelFile) html += `<p class="csv-path">Excel: ${esc(data.excelFile)}</p>`;
     if (data.csvFiles && data.csvFiles.length)
       html += `<p class="csv-path">Đã ghi ${data.csvFiles.length} file CSV trong logs/csv/</p>`;
 
@@ -639,13 +684,32 @@
       if (!tenDot) return;
 
       const khoa = getKhoaHocLabel();
-      const title = khoa ? `${name} — khóa ${khoa}` : `${name} — toàn bộ đợt`;
-      const scope = khoa
-        ? `khóa ${khoa} của học kỳ ${tenDot}`
-        : `học kỳ ${tenDot} — TẤT CẢ các khóa`;
+      const payload = scopePayload();
+
+      // Riêng sinh viên: có thể lấy theo hồ sơ khóa, gồm cả em chưa đăng ký học phần
+      const toanKhoa =
+        path === "/api/sync/students" && $("#syncStudentsToanKhoa").checked;
+
+      if (toanKhoa && !khoa) {
+        toast("Chọn Khóa ở thanh trên trước khi chạy toàn khóa theo hồ sơ", "err");
+        return $("#khoaHoc").focus();
+      }
+      if (toanKhoa) payload.toanKhoa = true;
+
+      const title = toanKhoa
+        ? `${name} — toàn khóa ${khoa} (hồ sơ)`
+        : khoa
+          ? `${name} — khóa ${khoa}`
+          : `${name} — toàn bộ đợt`;
+
+      const scope = toanKhoa
+        ? `TOÀN BỘ sinh viên có hồ sơ khóa ${khoa}, kể cả em chưa đăng ký học phần`
+        : khoa
+          ? `khóa ${khoa} của học kỳ ${tenDot}`
+          : `học kỳ ${tenDot} — TẤT CẢ các khóa`;
 
       if (!confirm(`Chạy "${name}" cho ${scope}?\n\nTác vụ này có thể mất nhiều phút.`)) return;
-      runSync(btn, title, path, scopePayload());
+      runSync(btn, title, path, payload);
     });
   });
 
@@ -1259,16 +1323,15 @@
   // ==================== khởi tạo ====================
 
   // Nhớ học kỳ đã nhập giữa các lần mở trang
-  const savedTenDot = localStorage.getItem(TEN_DOT_KEY);
-  if (savedTenDot) $("#tenDot").value = savedTenDot;
-  $("#tenDot").addEventListener("input", () =>
-    localStorage.setItem(TEN_DOT_KEY, getTenDot())
-  );
-  // Đổi đợt thì danh sách khóa cũng khác, nạp lại khi rời ô nhập
-  $("#tenDot").addEventListener("change", loadCohorts);
+  // Đổi đợt thì danh sách khóa cũng khác, phải nạp lại
+  $("#tenDot").addEventListener("change", () => {
+    localStorage.setItem(TEN_DOT_KEY, getTenDot());
+    loadCohorts();
+  });
 
   setMoodleView("courses");
   $("#healthBtn").click();
   loadDatasets();
-  loadCohorts();
+  // Nạp đợt trước rồi mới nạp khóa, vì danh sách khóa phụ thuộc đợt đang chọn
+  loadTerms().then(loadCohorts);
 })();

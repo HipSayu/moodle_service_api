@@ -20,8 +20,10 @@
 
   <div class="topbar-right">
     <label class="field field-inline">
-      <span>Học kỳ (tenDot)</span>
-      <input id="tenDot" type="text" placeholder="HK1 2026-2027" autocomplete="off">
+      <span>Học kỳ (đợt)</span>
+      <select id="tenDot" class="select select-dot">
+        <option value="">Đang tải danh sách đợt...</option>
+      </select>
     </label>
     <label class="field field-inline">
       <span>Khóa</span>
@@ -72,8 +74,13 @@
           <h3>Sinh viên</h3>
           <span class="tag">user</span>
         </header>
-        <p>Tạo/cập nhật tài khoản sinh viên. Mật khẩu khởi tạo <code>&lt;MaSinhVien&gt;@Huce</code>, chỉ đặt khi tạo mới.</p>
+        <p>Tạo/cập nhật tài khoản sinh viên. Mật khẩu khởi tạo <code>&lt;MaSinhVien&gt;@Huce</code>, chỉ đặt khi tạo mới.
+          Thiếu email thì dùng <code>&lt;MaSinhVien&gt;@.st.huce.edu.vn</code>.</p>
         <div class="card-actions">
+          <label class="inline-check">
+            <input type="checkbox" id="syncStudentsToanKhoa">
+            Toàn khóa theo hồ sơ (kể cả em chưa đăng ký học phần)
+          </label>
           <button class="btn btn-primary" data-action="sync" data-path="/api/sync/students">Toàn bộ đợt</button>
           <div class="input-group">
             <input type="text" data-one-input="students" placeholder="Mã sinh viên">

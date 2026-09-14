@@ -1,7 +1,7 @@
 import syncToMoodleService from "../services/syncToMoodleService.js";
 import databaseService from "../services/databaseService.js";
 import { ok, fail, syncResult } from "../utils/response.js";
-import { getTenDot, getParam } from "../utils/requestParams.js";
+import { getTenDot, getParam, getBool } from "../utils/requestParams.js";
 
 // Khóa (K70, K71...) là bộ lọc tùy chọn của mọi tác vụ đồng bộ, cho phép
 // chạy từng khóa trong đợt thay vì cả đợt một lần.
@@ -24,17 +24,33 @@ const syncStudents = async (req, res) => {
   const maSinhVien = req.params.maSinhVien || getParam(req, "maSinhVien");
   const { idKhoaHoc, tenKhoaHoc } = await resolveKhoa(req, tenDot);
 
+  // toanKhoa: lấy theo hồ sơ khóa, gồm cả sinh viên chưa đăng ký học phần nào.
+  // Không có khóa thì phạm vi là toàn bộ sinh viên của trường nên phải chặn.
+  const toanKhoa = getBool(req, "toanKhoa");
+  if (toanKhoa && !idKhoaHoc) {
+    return fail(res, {
+      message:
+        "toanKhoa=true bắt buộc chọn khóa (khoaHoc hoặc idKhoaHoc), nếu không sẽ quét toàn bộ sinh viên của trường",
+    });
+  }
+
   const data = await syncToMoodleService.syncStudents({
     tenDot,
     maSinhVien,
     idKhoaHoc,
     tenKhoaHoc,
+    toanKhoa,
+    chiDangHoc: getBool(req, "chiDangHoc", true),
   });
+
+  const phamVi = toanKhoa
+    ? ` — toàn khóa ${tenKhoaHoc} (theo hồ sơ)`
+    : khoaSuffix(tenKhoaHoc);
 
   return syncResult(res, {
     message: data.notFound
-      ? `Không tìm thấy sinh viên${maSinhVien ? ` ${maSinhVien}` : ""} trong đợt ${tenDot}${khoaSuffix(tenKhoaHoc)}`
-      : `Đồng bộ ${data.succeeded}/${data.total} sinh viên${khoaSuffix(tenKhoaHoc)}, lỗi ${data.failed}`,
+      ? `Không tìm thấy sinh viên${maSinhVien ? ` ${maSinhVien}` : ""} trong đợt ${tenDot}${phamVi}`
+      : `Đồng bộ ${data.succeeded}/${data.total} sinh viên${phamVi}, lỗi ${data.failed}`,
     data,
   });
 };

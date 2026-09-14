@@ -21,6 +21,7 @@ const COLUMN_TITLES = {
   HoDem: "Họ Đệm",
   Ten: "Tên",
   Email: "Email",
+  EmailTuSinh: "Email Tự Sinh",
   NguyenQuan: "Nguyên Quán",
   MaLopHocPhan: "Mã Lớp Học Phần",
   TenLopHoc: "Tên Lớp Học",
@@ -116,3 +117,4 @@ class CSVHelper {
 }
 
 export default CSVHelper;
+export { COLUMN_TITLES };

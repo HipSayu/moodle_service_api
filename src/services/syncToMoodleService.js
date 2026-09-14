@@ -1,8 +1,11 @@
 import databaseService from "./databaseService.js";
 import moodleService from "./moodleService.js";
+import config from "../config/index.js";
 import { syncLogger } from "../utils/logger.js";
 import { retryOperation } from "../utils/errorHandler.js";
+import { createProgress } from "../utils/progress.js";
 import CSVHelper from "../utils/csvHelper.js";
+import ExcelHelper from "../utils/excelHelper.js";
 
 // Role id trên Moodle
 const ROLE = {
@@ -29,6 +32,32 @@ class SyncToMoodleService {
   // Dùng thống nhất ở mọi nơi: tạo course, tra course, đăng ký, chấm điểm.
   buildShortname(row) {
     return `${row.MaLopHocPhan}_${row.TenDot}`;
+  }
+
+  // Email dùng làm tài khoản Moodle của sinh viên.
+  // DT_SinhVien còn nhiều em trống Email, thiếu thì dựng theo mã sinh viên
+  // (mẫu lấy từ STUDENT_EMAIL_DOMAIN trong .env) để vẫn tạo được tài khoản.
+  //
+  // Domain được chuẩn hóa bỏ dấu chấm thừa ở hai đầu: "@.st.huce.edu.vn" là email
+  // sai chuẩn, Moodle trả "Invalid parameter value detected" và từ chối tạo user.
+  studentEmail(maSinhVien, email) {
+    const existing = String(email ?? "").trim();
+    if (existing) return existing.toLowerCase();
+
+    const domain = String(config.sync.studentEmailDomain ?? "")
+      .trim()
+      .replace(/^[.@\s]+/, "")
+      .replace(/[.\s]+$/, "");
+
+    return `${maSinhVien}@${domain}`.toLowerCase();
+  }
+
+  // Moodle validate email khá chặt. Chặn từ phía mình để báo rõ dòng nào hỏng
+  // thay vì để cả lô fail với thông báo chung chung.
+  isValidEmail(email) {
+    return /^[^\s@]+@[A-Za-z0-9]([A-Za-z0-9-]*[A-Za-z0-9])?(\.[A-Za-z0-9]([A-Za-z0-9-]*[A-Za-z0-9])?)+$/.test(
+      String(email ?? "")
+    );
   }
 
   // Tra user Moodle theo idnumber, có cache trong phạm vi một lần chạy
@@ -158,14 +187,27 @@ class SyncToMoodleService {
 
   // Đồng bộ sinh viên sang Moodle.
   // maSinhVien: chỉ đồng bộ 1 sinh viên; bỏ trống thì đồng bộ cả đợt.
-  async syncStudents({ tenDot, maSinhVien = null, idKhoaHoc = null, tenKhoaHoc = null } = {}) {
+  // toanKhoa = true: lấy theo HỒ SƠ khóa, gồm cả em chưa đăng ký học phần nào.
+  // Mặc định (false) chỉ lấy em có đăng ký trong đợt — đúng phạm vi cần ghi danh.
+  async syncStudents({
+    tenDot,
+    maSinhVien = null,
+    idKhoaHoc = null,
+    tenKhoaHoc = null,
+    toanKhoa = false,
+    chiDangHoc = true,
+  } = {}) {
     const scope = maSinhVien
       ? `sinh viên ${maSinhVien}`
-      : this.scopeLabel(tenDot, tenKhoaHoc);
+      : toanKhoa
+        ? `toàn khóa ${tenKhoaHoc || idKhoaHoc} (theo hồ sơ)`
+        : this.scopeLabel(tenDot, tenKhoaHoc);
     syncLogger.info(`Bắt đầu đồng bộ sinh viên (${scope})`);
 
     const students = this.uniqueBy(
-      await databaseService.getStudents({ tenDot, maSinhVien, idKhoaHoc }),
+      toanKhoa && !maSinhVien
+        ? await databaseService.getCohortStudents({ idKhoaHoc, chiDangHoc })
+        : await databaseService.getStudents({ tenDot, maSinhVien, idKhoaHoc }),
       (row) => row.MaSinhVien
     );
 
@@ -174,16 +216,24 @@ class SyncToMoodleService {
       return this.buildResult({ notFound: true, details: [] });
     }
 
+    const progress = createProgress(`Sinh viên · ${scope}`, students.length);
+
     let succeeded = 0;
     let failed = 0;
+    let generatedEmails = 0;
     const errors = [];
     const rows = [];
 
     for (const student of students) {
+      const email = this.studentEmail(student.MaSinhVien, student.Email);
+      const isGenerated = !String(student.Email ?? "").trim();
+      if (isGenerated) generatedEmails++;
+
       const row = {
         MaSinhVien: student.MaSinhVien,
         HoTenSinhVien: student.HoTenSinhVien,
-        Email: student.Email,
+        Email: email,
+        EmailTuSinh: isGenerated ? "Tự sinh" : "",
         HanhDong: "",
         TrangThai: "Thành công",
         LoiChiTiet: "",
@@ -193,13 +243,21 @@ class SyncToMoodleService {
       const userData = {
         first_name: student.Ten,
         last_name: student.HoDem,
-        email: student.Email,
+        email,
         city: student.NguyenQuan || "HN",
         idnumber: student.MaSinhVien,
         password: studentDefaultPassword(student.MaSinhVien),
       };
 
       try {
+        // Email sai chuẩn thì Moodle chắc chắn từ chối, chặn trước cho khỏi
+        // gọi API 3 lần rồi mới biết hỏng
+        if (!this.isValidEmail(email)) {
+          throw new Error(
+            `Email không hợp lệ: "${email}" — sửa STUDENT_EMAIL_DOMAIN trong .env`
+          );
+        }
+
         await retryOperation(
           async () => {
             const existingUser = await moodleService.getUserByIdNumber(
@@ -226,14 +284,35 @@ class SyncToMoodleService {
         row.HanhDong = "Lỗi";
         row.TrangThai = "Lỗi";
         row.LoiChiTiet = error.message;
-        errors.push({ MaSinhVien: student.MaSinhVien, error: error.message });
-        syncLogger.error(`Đồng bộ sinh viên ${student.MaSinhVien} lỗi:`, error);
+        errors.push({
+          MaSinhVien: student.MaSinhVien,
+          Email: email,
+          error: error.message,
+        });
+        // Ghi rõ mã sinh viên và email, đống stack trace không cho biết dòng nào hỏng
+        syncLogger.error(
+          `Đồng bộ sinh viên ${student.MaSinhVien} (${email}) lỗi: ${error.message}`
+        );
       }
 
       rows.push(row);
+      progress.tick(row.HanhDong);
+    }
+
+    progress.finish();
+
+    if (generatedEmails > 0) {
+      // Lấy mẫu từ chính hàm dựng email để log đúng cái đã gửi đi Moodle
+      const mau = this.studentEmail("<MaSinhVien>", null);
+      syncLogger.warn(
+        `${generatedEmails}/${students.length} sinh viên trống Email, đã tự sinh theo mẫu ${mau}`
+      );
     }
 
     const csvFile = await CSVHelper.saveRows(rows, "sync_students");
+    const excelFile = await ExcelHelper.saveRows(rows, "sync_students", {
+      meta: { "Phạm vi": scope },
+    });
 
     syncLogger.info(
       `Đồng bộ sinh viên xong (${scope}): ${succeeded}/${students.length} thành công, ${failed} lỗi`
@@ -245,6 +324,7 @@ class SyncToMoodleService {
       failed,
       errors,
       csvFile,
+      excelFile,
       details: maSinhVien ? rows : undefined,
     });
   }
@@ -267,6 +347,8 @@ class SyncToMoodleService {
       syncLogger.warn(`Không tìm thấy giảng viên nào (${scope})`);
       return this.buildResult({ notFound: true, details: [] });
     }
+
+    const progress = createProgress(`Giảng viên · ${scope}`, teachers.length);
 
     let succeeded = 0;
     let failed = 0;
@@ -327,9 +409,14 @@ class SyncToMoodleService {
       }
 
       rows.push(row);
+      progress.tick(row.HanhDong);
     }
 
+    progress.finish();
     const csvFile = await CSVHelper.saveRows(rows, "sync_teachers");
+    const excelFile = await ExcelHelper.saveRows(rows, "sync_teachers", {
+      meta: { "Phạm vi": scope },
+    });
 
     syncLogger.info(
       `Đồng bộ giảng viên xong (${scope}): ${succeeded}/${teachers.length} thành công, ${failed} lỗi`
@@ -341,6 +428,7 @@ class SyncToMoodleService {
       failed,
       errors,
       csvFile,
+      excelFile,
       details: maGiangVien ? rows : undefined,
     });
   }
@@ -474,6 +562,8 @@ class SyncToMoodleService {
       );
     }
 
+    const progress = createProgress(`Khóa học · ${scope}`, courses.length);
+
     let created = 0;
     let skipped = 0;
     let failed = 0;
@@ -506,6 +596,7 @@ class SyncToMoodleService {
           row.MoodleCourseId = existingCourse.id;
           syncLogger.info(`Khóa học đã tồn tại, bỏ qua: ${shortname}`);
           rows.push(row);
+          progress.tick(row.TrangThai);
           continue;
         }
 
@@ -581,9 +672,14 @@ class SyncToMoodleService {
       }
 
       rows.push(row);
+      progress.tick(row.TrangThai);
     }
 
+    progress.finish();
     const csvFile = await CSVHelper.saveRows(rows, "sync_courses");
+    const excelFile = await ExcelHelper.saveRows(rows, "sync_courses", {
+      meta: { "Phạm vi": scope },
+    });
 
     syncLogger.info(
       `Đồng bộ khóa học xong (${scope}): tạo mới ${created}, đã có ${skipped}, lỗi ${failed}`
@@ -597,6 +693,7 @@ class SyncToMoodleService {
       errors,
       created,
       csvFile,
+      excelFile,
       details: maLopHocPhan ? rows : undefined,
     });
   }
@@ -667,6 +764,7 @@ class SyncToMoodleService {
     syncLogger.info(
       `${enrollments.length} đăng ký thuộc ${courseGroups.size} lớp học phần`
     );
+    const progress = createProgress(`ĐK sinh viên · ${scope}`, enrollments.length);
 
     let succeeded = 0;
     let skipped = 0;
@@ -697,6 +795,7 @@ class SyncToMoodleService {
               ThoiGian: new Date().toISOString(),
             })
           );
+          progress.add(group.rows.length, "Bỏ qua");
           allRows.push(...courseRows);
           continue;
         }
@@ -755,6 +854,7 @@ class SyncToMoodleService {
           }
 
           courseRows.push(row);
+          progress.tick(row.TrangThai);
         }
 
         allRows.push(...courseRows);
@@ -777,12 +877,23 @@ class SyncToMoodleService {
         }
       } catch (error) {
         failed += group.rows.length;
+        progress.add(group.rows.length, "Lỗi");
         errors.push({ shortname: group.shortname, error: error.message });
         syncLogger.error(`Xử lý lớp ${group.shortname} lỗi:`, error);
       }
     }
 
+    progress.finish();
+
+    // Excel gộp cả lần chạy vào một file, kèm sheet tổng hợp theo lớp
+    const excelFile = await ExcelHelper.saveRows(allRows, "enroll_students", {
+      subDir: "enrollments/students",
+      groupBy: "ShortName",
+      meta: { "Phạm vi": scope },
+    });
+
     // Khi lọc theo 1 đối tượng thì gộp thành 1 file cho dễ xem
+
     const csvFile = filtered
       ? await CSVHelper.saveRows(
           allRows,
@@ -803,6 +914,7 @@ class SyncToMoodleService {
       errors,
       totalCourses: courseGroups.size,
       csvFile,
+      excelFile,
       csvFiles: filtered ? undefined : csvFiles,
       details: filtered ? allRows : undefined,
     });
@@ -844,6 +956,7 @@ class SyncToMoodleService {
     syncLogger.info(
       `${enrollments.length} phân công thuộc ${courseGroups.size} lớp học phần`
     );
+    const progress = createProgress(`Phân công GV · ${scope}`, enrollments.length);
 
     let succeeded = 0;
     let skipped = 0;
@@ -876,6 +989,7 @@ class SyncToMoodleService {
               ThoiGian: new Date().toISOString(),
             })
           );
+          progress.add(group.rows.length, "Bỏ qua");
           allRows.push(...courseRows);
           continue;
         }
@@ -940,6 +1054,7 @@ class SyncToMoodleService {
           }
 
           courseRows.push(row);
+          progress.tick(row.TrangThai);
         }
 
         allRows.push(...courseRows);
@@ -961,10 +1076,20 @@ class SyncToMoodleService {
         }
       } catch (error) {
         failed += group.rows.length;
+        progress.add(group.rows.length, "Lỗi");
         errors.push({ shortname: group.shortname, error: error.message });
         syncLogger.error(`Xử lý lớp ${group.shortname} lỗi:`, error);
       }
     }
+
+    progress.finish();
+
+    // Excel gộp cả lần chạy vào một file, kèm sheet tổng hợp theo lớp
+    const excelFile = await ExcelHelper.saveRows(allRows, "enroll_teachers", {
+      subDir: "enrollments/teachers",
+      groupBy: "ShortName",
+      meta: { "Phạm vi": scope },
+    });
 
     const csvFile = filtered
       ? await CSVHelper.saveRows(
@@ -986,6 +1111,7 @@ class SyncToMoodleService {
       errors,
       totalCourses: courseGroups.size,
       csvFile,
+      excelFile,
       csvFiles: filtered ? undefined : csvFiles,
       details: filtered ? allRows : undefined,
     });

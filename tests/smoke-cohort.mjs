@@ -40,6 +40,16 @@ databaseService.getStudents = async (args) => {
     { MaSinhVien: '1653966', HoDem: 'Le', Ten: 'C', HoTenSinhVien: 'Le C', Email: 'c@x.vn', IDKhoaHoc: 47, TenKhoaHoc: 'Khóa 70 (2025)' },
   ];
 };
+// Hồ sơ khóa: gồm cả em chưa đăng ký học phần nào
+databaseService.getCohortStudents = async (args) => {
+  record('getCohortStudents', args);
+  return [
+    { MaSinhVien: '0000171', HoDem: 'Ta Quoc', Ten: 'Anh', HoTenSinhVien: 'Ta Quoc Anh', Email: null, MaLop: '71XDC2', IDKhoaHoc: 63, TrangThai: 1 },
+    { MaSinhVien: '0000271', HoDem: 'Tran Duc', Ten: 'Anh', HoTenSinhVien: 'Tran Duc Anh', Email: null, MaLop: '71XDC6', IDKhoaHoc: 63, TrangThai: 1 },
+    { MaSinhVien: '0000371', HoDem: 'Tran Hoang', Ten: 'Viet', HoTenSinhVien: 'Tran Hoang Viet', Email: 'viet@x.vn', MaLop: '71XDC4', IDKhoaHoc: 63, TrangThai: 1 },
+  ];
+};
+
 databaseService.getTeachers = async (args) => {
   record('getTeachers', args);
   return [
@@ -164,6 +174,31 @@ check('idKhoaHoc=47 -> lọc đúng khóa', byId.status === 200 && lastCall('get
 const noKhoa = await call('POST', '/api/enrollments/teachers', { tenDot: TEN_DOT });
 check('Không chọn khóa -> chạy cả đợt', noKhoa.status === 200 && lastCall('getTeacherEnrollments')?.idKhoaHoc === null,
   `idKhoaHoc=${lastCall('getTeacherEnrollments')?.idKhoaHoc}`);
+
+console.log('\n=== ĐỒNG BỘ TOÀN KHÓA THEO HỒ SƠ ===');
+
+const toanKhoa = await call('POST', '/api/sync/students', {
+  tenDot: TEN_DOT,
+  khoaHoc: '70',
+  toanKhoa: true,
+});
+check('toanKhoa=true -> lấy theo hồ sơ khóa', toanKhoa.status === 200 && lastCall('getCohortStudents')?.idKhoaHoc === 47,
+  `idKhoaHoc=${lastCall('getCohortStudents')?.idKhoaHoc}`);
+check('Mặc định chỉ lấy sinh viên đang học', lastCall('getCohortStudents')?.chiDangHoc === true);
+check('Lấy đủ cả em chưa đăng ký học phần', toanKhoa.body?.data?.total === 3, `total=${toanKhoa.body?.data?.total}`);
+check('Thông báo nói rõ là chạy theo hồ sơ', (toanKhoa.body?.message || '').includes('theo hồ sơ'), toanKhoa.body?.message);
+
+const toanKhoaNoKhoa = await call('POST', '/api/sync/students', { tenDot: TEN_DOT, toanKhoa: true });
+check('toanKhoa=true mà không chọn khóa -> 400', toanKhoaNoKhoa.status === 400, toanKhoaNoKhoa.body?.message?.slice(0, 60));
+
+const keoCaNghi = await call('POST', '/api/sync/students', {
+  tenDot: TEN_DOT, khoaHoc: '70', toanKhoa: true, chiDangHoc: false,
+});
+check('chiDangHoc=false -> lấy cả sinh viên đã nghỉ', keoCaNghi.status === 200 && lastCall('getCohortStudents')?.chiDangHoc === false);
+
+const macDinh = await call('POST', '/api/sync/students', { tenDot: TEN_DOT, khoaHoc: '70' });
+check('Không bật toanKhoa -> vẫn lấy qua đăng ký học phần',
+  macDinh.status === 200 && lastCall('getStudents')?.idKhoaHoc === 47);
 
 console.log('\n=== KHÓA KHÔNG HỢP LỆ ===');
 

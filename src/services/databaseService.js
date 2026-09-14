@@ -424,6 +424,23 @@ class DatabaseService {
     });
   }
 
+  // Sinh viên theo HỒ SƠ khóa, không qua đăng ký học phần.
+  // Bắt buộc có khóa: không lọc là quét toàn bộ sinh viên của trường (chín mươi nghìn).
+  async getCohortStudents({ idKhoaHoc, chiDangHoc = true } = {}) {
+    const parsed = parseInt(idKhoaHoc, 10);
+    if (!Number.isInteger(parsed) || parsed <= 0) {
+      throw new AppError(
+        "Đồng bộ theo hồ sơ khóa bắt buộc phải chọn khóa (khoaHoc hoặc idKhoaHoc)"
+      );
+    }
+
+    return this.queryDatasetAll("cohort-students", {
+      idKhoaHoc: parsed,
+      // Mặc định bỏ qua sinh viên đã nghỉ/thôi học, khỏi tạo tài khoản vô ích
+      filters: chiDangHoc ? [{ field: "TrangThai", op: "eq", value: 1 }] : [],
+    });
+  }
+
   async getTeachers({ tenDot, maGiangVien = null, idKhoaHoc = null } = {}) {
     // Cho phép truyền mã hoặc email nên tra cả hai cột
     if (!maGiangVien) {
