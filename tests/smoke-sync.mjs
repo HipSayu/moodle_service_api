@@ -30,8 +30,8 @@ databaseService.getTeachers = async () => [
 ];
 
 databaseService.getCourses = async () => [
-  { MaLopHocPhan: 'LHP1', TenDot: TEN_DOT, TenLopHoc: '67CS1', TenMonHoc: 'Toan', IDToBoMon: 7, SoTietLyThuyet: 45, SoTietThucHanh: 0 },
-  { MaLopHocPhan: 'LHP2', TenDot: TEN_DOT, TenLopHoc: '67CS2', TenMonHoc: 'Ly', IDToBoMon: null, SoTietLyThuyet: 15, SoTietThucHanh: 30 },
+  { MaLopHocPhan: 'LHP1', TenDot: TEN_DOT, TenLopHoc: '67CS1', TenMonHoc: 'Toan', IDToBoMon: 7, SoTietLyThuyet: 45, SoTietThucHanh: 0, IDCoSo: 1, MaCoSo: 'CS1', TenCoSo: 'Cơ sở chính' },
+  { MaLopHocPhan: 'LHP2', TenDot: TEN_DOT, TenLopHoc: '67CS2', TenMonHoc: 'Ly', IDToBoMon: null, SoTietLyThuyet: 15, SoTietThucHanh: 30, IDCoSo: 4, MaCoSo: 'CS3', TenCoSo: 'Cơ sở Hồ Chí Minh' },
 ];
 
 databaseService.getStudentEnrollments = async () => [
@@ -103,6 +103,15 @@ check('LHP2 là lớp thực hành -> tạo 4 section', calls.createSection === 
 check('User đã tồn tại -> chỉ update', calls.updateUser === 4);
 check('User chưa có -> tạo mới', calls.createUser === 2);
 check('Parent+child category đã có -> không tạo lại', calls.createCategory === 0);
+
+// Shortname: cơ sở chính giữ nguyên tên cũ, cơ sở khác được chèn mã cơ sở
+const snChinh = syncToMoodleService.buildShortname({ MaLopHocPhan: 'LHP1', TenDot: TEN_DOT, IDCoSo: 1, MaCoSo: 'CS1' });
+const snHCM = syncToMoodleService.buildShortname({ MaLopHocPhan: 'LHP1', TenDot: TEN_DOT, IDCoSo: 4, MaCoSo: 'CS3' });
+const snThieu = syncToMoodleService.buildShortname({ MaLopHocPhan: 'LHP1', TenDot: TEN_DOT });
+check('Cơ sở chính -> shortname không đổi', snChinh === 'LHP1_' + TEN_DOT, snChinh);
+check('Cơ sở khác -> chèn mã cơ sở', snHCM === 'LHP1_CS3_' + TEN_DOT, snHCM);
+check('Thiếu dữ liệu cơ sở -> giữ tên cũ', snThieu === 'LHP1_' + TEN_DOT, snThieu);
+check('Hai cơ sở cùng mã LHP -> hai shortname khác nhau', snChinh !== snHCM);
 
 // Thiếu email thì dựng <MaSinhVien>@<STUDENT_EMAIL_DOMAIN>.
 // Domain phải được bỏ dấu chấm thừa: ".st.huce.edu.vn" -> "st.huce.edu.vn",

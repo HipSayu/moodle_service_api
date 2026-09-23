@@ -441,6 +441,77 @@ class DatabaseService {
     });
   }
 
+  // Số mã tối đa cho một lần tra theo mã sinh viên.
+  // Mỗi mã là một tham số SQL, SQL Server chỉ nhận tối đa 2100 tham số một câu.
+  static MAX_STUDENT_CODES = 200;
+
+  // Tra sinh viên thẳng từ hồ sơ theo mã, KHÔNG cần đợt và không cần đăng ký học phần.
+  // Dùng khi cần đẩy nhanh một vài em lên Moodle.
+  async getStudentsByCodes(codes = []) {
+    const list = [...new Set(
+      (Array.isArray(codes) ? codes : String(codes ?? "").split(","))
+        .map((code) => String(code ?? "").trim())
+        .filter(Boolean)
+    )];
+
+    if (list.length === 0) {
+      throw new AppError("Thiếu mã sinh viên");
+    }
+
+    if (list.length > DatabaseService.MAX_STUDENT_CODES) {
+      throw new AppError(
+        `Tối đa ${DatabaseService.MAX_STUDENT_CODES} mã sinh viên một lần, đang gửi ${list.length}`
+      );
+    }
+
+    const rows = await this.queryDatasetAll("cohort-students", {
+      filters: [{ field: "MaSinhVien", op: "in", value: list.join(",") }],
+    });
+
+    // Trả kèm mã không tìm thấy để người gọi biết em nào sai mã / chưa có hồ sơ
+    const found = new Set(rows.map((row) => String(row.MaSinhVien).trim()));
+    return { rows, codes: list, notFound: list.filter((code) => !found.has(code)) };
+  }
+
+  // Số mã tối đa cho một lần tra theo mã lớp học danh nghĩa.
+  static MAX_CLASS_CODES = 50;
+
+  // Tra sinh viên theo LỚP HỌC DANH NGHĨA (lớp sinh hoạt, ví dụ 70CS2), KHÔNG cần đợt.
+  // Dùng khi cần đồng bộ nguyên một lớp lên Moodle mà không phải gõ từng mã sinh viên.
+  async getStudentsByClassCode(classCodes = [], { chiDangHoc = true } = {}) {
+    const list = [...new Set(
+      (Array.isArray(classCodes) ? classCodes : String(classCodes ?? "").split(","))
+        .map((code) => String(code ?? "").trim())
+        .filter(Boolean)
+    )];
+
+    if (list.length === 0) {
+      throw new AppError("Thiếu mã lớp học danh nghĩa (ví dụ: 70CS2)");
+    }
+
+    if (list.length > DatabaseService.MAX_CLASS_CODES) {
+      throw new AppError(
+        `Tối đa ${DatabaseService.MAX_CLASS_CODES} lớp một lần, đang gửi ${list.length}`
+      );
+    }
+
+    const filters = [{ field: "MaLop", op: "in", value: list.join(",") }];
+    // Mặc định bỏ qua sinh viên đã nghỉ/thôi học, khỏi tạo tài khoản vô ích
+    if (chiDangHoc) filters.push({ field: "TrangThai", op: "eq", value: 1 });
+
+    const rows = await this.queryDatasetAll("cohort-students", { filters });
+
+    // Trả kèm mã lớp không tìm thấy để người gọi biết lớp nào sai mã / chưa có sinh viên
+    const found = new Set(
+      rows.map((row) => String(row.MaLop ?? "").trim().toUpperCase())
+    );
+    return {
+      rows,
+      codes: list,
+      notFound: list.filter((code) => !found.has(code.toUpperCase())),
+    };
+  }
+
   async getTeachers({ tenDot, maGiangVien = null, idKhoaHoc = null } = {}) {
     // Cho phép truyền mã hoặc email nên tra cả hai cột
     if (!maGiangVien) {

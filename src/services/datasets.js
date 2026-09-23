@@ -60,6 +60,9 @@ const COURSES_SQL = `
     mh.IDToBoMon,
     mh.SoTietLyThuyet,
     mh.SoTietThucHanh,
+    lhoc.IDCoSo,
+    cs.MaCoSo,
+    cs.TenCoSo,
     lhoc.IDKhoaHoc,
     kh.TenKhoaHoc,
     lhoc.NgayCapNhat
@@ -67,6 +70,7 @@ const COURSES_SQL = `
   INNER JOIN dbo.TKB_LopHoc AS lhoc WITH (NOLOCK) ON lhoc.Id = mh.IDLopHoc
   INNER JOIN dbo.DM_Dot d WITH (NOLOCK) ON lhoc.IDDot = d.Id
   LEFT JOIN dbo.DM_KhoaHoc kh WITH (NOLOCK) ON kh.Id = lhoc.IDKhoaHoc
+  LEFT JOIN dbo.View_CoSo cs ON cs.Id = lhoc.IDCoSo
   INNER JOIN dbo.TKB_LopHocPhan AS lhp WITH (NOLOCK) ON lhp.IDMonHoc = mh.Id
   WHERE d.TenDot LIKE @tenDot
     AND (@idKhoaHoc = -1 OR lhoc.IDKhoaHoc = @idKhoaHoc)
@@ -81,6 +85,9 @@ const STUDENT_ENROLLMENTS_SQL = `
     sv.MaSinhVien,
     sv.HoDem + ' ' + sv.Ten AS HoTenSinhVien,
     sv.Email,
+    lhoc.IDCoSo,
+    cs.MaCoSo,
+    cs.TenCoSo,
     lhoc.IDKhoaHoc,
     kh.TenKhoaHoc
   FROM dbo.DT_DangKyHocPhan dkhp WITH (NOLOCK)
@@ -90,6 +97,7 @@ const STUDENT_ENROLLMENTS_SQL = `
   INNER JOIN dbo.TKB_LopHoc lhoc WITH (NOLOCK) ON lhoc.Id = mh.IDLopHoc
   INNER JOIN dbo.DM_Dot d WITH (NOLOCK) ON lhoc.IDDot = d.Id
   LEFT JOIN dbo.DM_KhoaHoc kh WITH (NOLOCK) ON kh.Id = lhoc.IDKhoaHoc
+  LEFT JOIN dbo.View_CoSo cs ON cs.Id = lhoc.IDCoSo
   WHERE dkhp.IDTrangThaiDangKy IN (1,2,3)
     AND d.TenDot LIKE @tenDot
     AND (@idKhoaHoc = -1 OR lhoc.IDKhoaHoc = @idKhoaHoc)
@@ -105,6 +113,9 @@ const TEACHER_ENROLLMENTS_SQL = `
     gv.HoDem + ' ' + gv.Ten AS HoTenGiangVien,
     gv.Email,
     lhgv.IsTroGiang,
+    lhoc.IDCoSo,
+    cs.MaCoSo,
+    cs.TenCoSo,
     lhoc.IDKhoaHoc,
     kh.TenKhoaHoc
   FROM dbo.TKB_LopHocPhan lhp WITH (NOLOCK)
@@ -117,6 +128,7 @@ const TEACHER_ENROLLMENTS_SQL = `
   INNER JOIN dbo.TKB_LopHoc lhoc WITH (NOLOCK) ON lhoc.Id = mh.IDLopHoc
   INNER JOIN dbo.DM_Dot d WITH (NOLOCK) ON lhoc.IDDot = d.Id
   LEFT JOIN dbo.DM_KhoaHoc kh WITH (NOLOCK) ON kh.Id = lhoc.IDKhoaHoc
+  LEFT JOIN dbo.View_CoSo cs ON cs.Id = lhoc.IDCoSo
   WHERE d.TenDot LIKE @tenDot
     AND (@idKhoaHoc = -1 OR lhoc.IDKhoaHoc = @idKhoaHoc)
 `;
@@ -135,6 +147,9 @@ const GRADES_SQL = `
     kq.Id AS IDKetQuaHocTap,
     mh.Id AS IDMonHoc,
     lhp.Id AS IDLopHocPhan,
+    lhoc.IDCoSo,
+    cs.MaCoSo,
+    cs.TenCoSo,
     lhoc.IDKhoaHoc,
     kh.TenKhoaHoc,
     kq.NgayCapNhat
@@ -144,6 +159,7 @@ const GRADES_SQL = `
   INNER JOIN dbo.TKB_LopHoc AS lhoc WITH (NOLOCK) ON mh.IDLopHoc = lhoc.Id
   INNER JOIN dbo.DM_Dot d WITH (NOLOCK) ON lhoc.IDDot = d.Id
   LEFT JOIN dbo.DM_KhoaHoc kh WITH (NOLOCK) ON kh.Id = lhoc.IDKhoaHoc
+  LEFT JOIN dbo.View_CoSo cs ON cs.Id = lhoc.IDCoSo
   INNER JOIN dbo.DT_KetQuaHocTapMonHoc AS kq WITH (NOLOCK)
     ON kq.IDLopHocPhan = lhp.Id AND kq.IDSinhVien = dk.IDSinhVien
   INNER JOIN dbo.DT_SinhVien AS sv WITH (NOLOCK) ON kq.IDSinhVien = sv.Id
@@ -262,6 +278,9 @@ const DATASETS = {
       col("IDToBoMon", "number", "ID bộ môn"),
       col("SoTietLyThuyet", "number", "Số tiết lý thuyết"),
       col("SoTietThucHanh", "number", "Số tiết thực hành"),
+      col("IDCoSo", "number", "ID cơ sở"),
+      col("MaCoSo", "string", "Mã cơ sở"),
+      col("TenCoSo", "string", "Cơ sở"),
       col("IDKhoaHoc", "number", "ID khóa"),
       col("TenKhoaHoc", "string", "Khóa"),
       col("NgayCapNhat", "date", "Ngày cập nhật"),
@@ -282,6 +301,9 @@ const DATASETS = {
       col("MaSinhVien", "string", "Mã sinh viên"),
       col("HoTenSinhVien", "string", "Họ tên sinh viên"),
       col("Email", "string", "Email"),
+      col("IDCoSo", "number", "ID cơ sở"),
+      col("MaCoSo", "string", "Mã cơ sở"),
+      col("TenCoSo", "string", "Cơ sở"),
       col("IDKhoaHoc", "number", "ID khóa"),
       col("TenKhoaHoc", "string", "Khóa"),
     ],
@@ -302,6 +324,9 @@ const DATASETS = {
       col("HoTenGiangVien", "string", "Họ tên giảng viên"),
       col("Email", "string", "Email"),
       col("IsTroGiang", "number", "Là trợ giảng (1/0)"),
+      col("IDCoSo", "number", "ID cơ sở"),
+      col("MaCoSo", "string", "Mã cơ sở"),
+      col("TenCoSo", "string", "Cơ sở"),
       col("IDKhoaHoc", "number", "ID khóa"),
       col("TenKhoaHoc", "string", "Khóa"),
     ],
@@ -326,6 +351,9 @@ const DATASETS = {
       col("IDKetQuaHocTap", "number", "ID kết quả"),
       col("IDMonHoc", "number", "ID môn học"),
       col("IDLopHocPhan", "number", "ID lớp học phần"),
+      col("IDCoSo", "number", "ID cơ sở"),
+      col("MaCoSo", "string", "Mã cơ sở"),
+      col("TenCoSo", "string", "Cơ sở"),
       col("IDKhoaHoc", "number", "ID khóa"),
       col("TenKhoaHoc", "string", "Khóa"),
       col("NgayCapNhat", "date", "Ngày cập nhật"),

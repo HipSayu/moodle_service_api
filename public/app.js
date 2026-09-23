@@ -725,12 +725,71 @@
         return;
       }
 
+      const name = btn.closest(".card").querySelector("h3").textContent;
+
+      // Sinh viên tra thẳng hồ sơ theo mã nên không cần học kỳ,
+      // và nhận nhiều mã một lúc (cách nhau dấu phẩy)
+      if (btn.dataset.path === "/api/sync/students") {
+        const so = value.split(",").filter((v) => v.trim()).length;
+        return runSync(
+          btn,
+          `${name} — ${so > 1 ? `${so} mã` : value}`,
+          "/api/sync/students/by-code",
+          { maSinhVien: value }
+        );
+      }
+
+      // Theo lớp học danh nghĩa: cũng tra thẳng hồ sơ nên không cần học kỳ,
+      // tự động lấy hết sinh viên đang học trong lớp
+      if (btn.dataset.path === "/api/sync/students/by-class") {
+        const so = value.split(",").filter((v) => v.trim()).length;
+        return runSync(
+          btn,
+          `${name} — lớp ${so > 1 ? `${so} lớp` : value}`,
+          "/api/sync/students/by-class",
+          { maLop: value }
+        );
+      }
+
       const tenDot = requireTenDot();
       if (!tenDot) return;
 
-      const title = btn.closest(".card").querySelector("h3").textContent + ` — ${value}`;
-      runSync(btn, title, `${btn.dataset.path}/${encodeURIComponent(value)}`, { tenDot });
+      runSync(btn, `${name} — ${value}`, `${btn.dataset.path}/${encodeURIComponent(value)}`, { tenDot });
     });
+  });
+
+  // Dọn ghi danh nhầm cơ sở: xem trước không đụng gì, gỡ thật thì hỏi kỹ
+  $('[data-action="cleanup-preview"]').addEventListener("click", () => {
+    const tenDot = requireTenDot();
+    if (!tenDot) return;
+
+    runSync(
+      $('[data-action="cleanup-preview"]'),
+      "Dọn ghi danh nhầm cơ sở — xem trước",
+      "/api/enrollments/cleanup-campus",
+      { tenDot, apply: false }
+    );
+  });
+
+  $('[data-action="cleanup-apply"]').addEventListener("click", () => {
+    const tenDot = requireTenDot();
+    if (!tenDot) return;
+
+    if (
+      !confirm(
+        `GỠ THẬT sinh viên cơ sở khác khỏi khóa học của cơ sở chính, học kỳ ${tenDot}?\n\n` +
+          "Thao tác này KHÔNG hoàn tác được. Nên bấm \"Xem trước danh sách\" và kiểm tra file Excel trước."
+      )
+    ) {
+      return;
+    }
+
+    runSync(
+      $('[data-action="cleanup-apply"]'),
+      "Dọn ghi danh nhầm cơ sở — gỡ thật",
+      "/api/enrollments/cleanup-campus",
+      { tenDot, apply: true, confirm: true }
+    );
   });
 
   $("#clearResult").addEventListener("click", () => syncLog.reset());

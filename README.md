@@ -146,20 +146,85 @@ Mã HTTP:
 | Method | Đường dẫn | Mô tả |
 |---|---|---|
 | POST | `/api/sync/students` | Toàn bộ sinh viên của đợt |
-| POST | `/api/sync/students/:maSinhVien` | Một sinh viên |
+| POST | `/api/sync/students/:maSinhVien` | Một sinh viên — **không cần tenDot** |
+| POST | `/api/sync/students/by-code` | Nhiều sinh viên theo mã — **không cần tenDot** |
+| POST | `/api/sync/students/by-class` | Toàn bộ sinh viên theo lớp học danh nghĩa — **không cần tenDot** |
 | POST | `/api/sync/teachers` | Toàn bộ giảng viên của đợt |
 | POST | `/api/sync/teachers/:maGiangVien` | Một giảng viên (mã hoặc email) |
 | POST | `/api/sync/categories` | Khoa / bộ môn → category Moodle |
 | POST | `/api/sync/courses` | Tạo lớp học phần chưa có |
 | POST | `/api/sync/courses/:maLopHocPhan` | Một lớp học phần |
+| POST | `/api/sync/courses/by-code` | Một lớp học phần theo mã + học kỳ, không cần chọn khóa |
+| POST | `/api/sync/courses/full` | Một lớp học phần theo mã + học kỳ: tạo khóa học **+ ghi danh cả SV và GV** |
 | POST | `/api/sync/grades` | Điểm tổng kết → assignment cuối kỳ |
 | POST | `/api/sync/all` | Chạy tuần tự cả 5 bước |
+
+### Shortname khóa học và cơ sở
+
+Shortname (đồng thời là idnumber) của khóa học Moodle:
+
+| Cơ sở | Shortname |
+|---|---|
+| Cơ sở chính | `<MaLopHocPhan>_<TenDot>` — ví dụ `17020001_HK1 2026-2027` |
+| Cơ sở khác | `<MaLopHocPhan>_<MaCoSo>_<TenDot>` — ví dụ `17020001_CS3_HK1 2026-2027` |
+
+Cơ sở lấy từ `TKB_LopHoc.IDCoSo` nối sang `dbo.View_CoSo` (bảng gốc là
+`HRM_NUCE.dbo.DM_DonVi`): `1 = CS1 Cơ sở chính`, `3 = CS2 Hà Nam`, `4 = CS3 Hồ Chí Minh`.
+
+**Vì sao cơ sở chính không có mã trong shortname:** hơn 11.000 khóa học đã đồng bộ từ
+trước mang tên `<MaLopHocPhan>_<TenDot>`. Nếu đổi tên tất cả thì mọi lần tra cứu đều
+trượt, service sẽ tạo lại toàn bộ khóa học thành bản sao rỗng còn sinh viên và bài vở
+vẫn nằm ở khóa học cũ. Chỉ cơ sở khác mới gắn mã nên không lớp nào đang chạy bị đổi tên.
+
+| Biến môi trường | Mặc định | Ý nghĩa |
+|---|---|---|
+| `SHORTNAME_MAIN_CAMPUS_ID` | `1` | Id cơ sở được coi là cơ sở chính (bỏ khỏi shortname) |
+| `SHORTNAME_ALWAYS_CAMPUS` | `false` | `true` → luôn gắn mã cơ sở, chỉ dùng khi dựng Moodle mới từ đầu |
+
+Tên đầy đủ của khóa học cũng được ghi thêm cơ sở khi không phải cơ sở chính:
+`71MN_S - Môi trường... - HK1 2026-2027 (Cơ sở Hồ Chí Minh)`.
 
 Sinh viên **trống Email** trong `DT_SinhVien` vẫn được tạo tài khoản: email dựng theo
 mẫu `<MaSinhVien>@<STUDENT_EMAIL_DOMAIN>` (mặc định `.st.huce.edu.vn`, ví dụ
 `1083471@.st.huce.edu.vn`). Các dòng này được đánh dấu `Tự sinh` ở cột *Email Tự Sinh*
 trong CSV/Excel, và cuối mỗi lần chạy có dòng cảnh báo đếm số em bị thiếu email để
 nhập bù vào dữ liệu gốc.
+
+**Đồng bộ theo mã sinh viên, không cần đợt.** Tra thẳng hồ sơ `DT_SinhVien` theo mã nên
+em chưa đăng ký học phần nào, hoặc không biết em đó thuộc đợt nào, vẫn đẩy lên Moodle được.
+Nhận một mã hoặc nhiều mã cách nhau dấu phẩy, tối đa 200 mã một lần:
+
+```bash
+curl -X POST localhost:3000/api/sync/students/by-code -H 'Content-Type: application/json' \
+  -d '{"maSinhVien":"1083471, 1083472"}'
+
+# Một em thì gọi thẳng trên URL, cũng không cần tenDot
+curl -X POST localhost:3000/api/sync/students/1083471
+```
+
+Mã nào không có hồ sơ được trả về trong `data.khongTimThay` và nhắc luôn trong `message`,
+nên gửi nhầm mã là biết ngay. Trên giao diện: ô **Mã SV** ở thẻ Sinh viên, bấm **Theo mã**.
+
+**Đồng bộ theo lớp học danh nghĩa, không cần đợt.** Chỉ cần nhập mã lớp sinh hoạt
+(`DM_LopHoc.MaLopChu`, ví dụ `70CS2`), tự động lấy hết sinh viên **đang học** trong lớp
+đó từ hồ sơ `DT_SinhVien` và đẩy lên Moodle — không cần biết đợt hay đăng ký học phần.
+Nhận một mã lớp hoặc nhiều mã cách nhau dấu phẩy, tối đa 50 lớp một lần:
+
+```bash
+curl -X POST localhost:3000/api/sync/students/by-class -H 'Content-Type: application/json' \
+  -d '{"maLop":"70CS2"}'
+
+# Nhiều lớp cùng lúc
+curl -X POST localhost:3000/api/sync/students/by-class -H 'Content-Type: application/json' \
+  -d '{"maLop":"70CS2,70CS3"}'
+
+# Một lớp thì gọi thẳng trên URL
+curl -X POST localhost:3000/api/sync/students/by-class/70CS2
+```
+
+Truyền `chiDangHoc=false` để lấy cả sinh viên đã nghỉ/thôi học (mặc định chỉ lấy
+*Đang học*). Mã lớp không tìm thấy trả về trong `data.khongTimThay`. Trên giao diện:
+ô **Mã lớp danh nghĩa** ở thẻ Sinh viên, bấm **Theo lớp danh nghĩa**.
 
 **Tạo tài khoản cho cả khóa mới nhập học.** Mặc định `/api/sync/students` chỉ lấy sinh viên
 **đã đăng ký học phần** trong đợt (vì đi qua `DT_DangKyHocPhan`), nên khóa vừa nhập học
@@ -182,6 +247,44 @@ trường (hơn 91.000 em) nên bị chặn ở 400. Trên giao diện: tích *T
 
 Ví dụ chênh lệch thực tế với khóa 71 ở `HK1 2026-2027`: mặc định 1.587 em (đã đăng ký
 học phần), `toanKhoa=true` được 5.421 em (toàn bộ hồ sơ khóa).
+
+**Tạo một lớp học phần theo mã + học kỳ, không cần chọn khóa.** `/api/sync/courses/by-code`
+nhận thẳng `maLopHocPhan` và `tenDot` (học kỳ), bỏ qua bước chọn khóa (K70, K71...) —
+tiện khi chỉ biết mã lớp học phần và học kỳ, ví dụ từ thời khóa biểu:
+
+```bash
+curl -X POST localhost:3000/api/sync/courses/by-code -H 'Content-Type: application/json' \
+  -d '{"maLopHocPhan":"417688","tenDot":"HK1 2026-2027"}'
+
+# Mã lớp học phần cũng gọi thẳng trên URL, tenDot vẫn truyền trong body
+curl -X POST localhost:3000/api/sync/courses/by-code/417688 -H 'Content-Type: application/json' \
+  -d '{"tenDot":"HK1 2026-2027"}'
+```
+
+Lớp đã tồn tại trên Moodle thì bỏ qua, không tạo trùng. Trên giao diện: ô **Mã lớp học
+phần** trong thẻ Khóa học, bấm **Theo mã + học kỳ** — học kỳ lấy từ ô **Học kỳ (đợt)**
+ở thanh trên.
+
+**Đồng bộ đầy đủ một lớp học phần: tạo khóa học + ghi danh cả sinh viên và giảng
+viên.** `/api/sync/courses/full` gộp 3 bước (tạo khóa học, ghi danh sinh viên, ghi danh
+giảng viên) làm một, chỉ cần `maLopHocPhan` + `tenDot`, không cần chọn khóa:
+
+```bash
+curl -X POST localhost:3000/api/sync/courses/full -H 'Content-Type: application/json' \
+  -d '{"maLopHocPhan":"417688","tenDot":"HK1 2026-2027"}'
+
+# Mã lớp học phần cũng gọi thẳng trên URL, tenDot vẫn truyền trong body
+curl -X POST localhost:3000/api/sync/courses/full/417688 -H 'Content-Type: application/json' \
+  -d '{"tenDot":"HK1 2026-2027"}'
+```
+
+Chạy tuần tự bên trong: `syncCourses` → `syncStudentEnrollments` → `syncTeacherEnrollments`,
+một bước lỗi không chặn các bước sau. `data.course`, `data.students`, `data.teachers` là
+kết quả chi tiết của từng bước (mỗi bước vẫn xuất CSV/Excel riêng như khi chạy tách lẻ).
+Sinh viên/giảng viên **phải đã có tài khoản Moodle** từ trước (chạy đồng bộ Sinh viên/
+Giảng viên riêng nếu chưa có) — người chưa có tài khoản bị bỏ qua ở bước ghi danh, không
+chặn cả lớp. Trên giao diện: ô **Mã lớp học phần** trong thẻ **Đồng bộ đầy đủ 1 lớp học
+phần**, bấm **Đồng bộ + ghi danh** — học kỳ lấy từ ô **Học kỳ (đợt)** ở thanh trên.
 
 ### Chạy theo khóa (K70, K71...)
 
@@ -235,6 +338,29 @@ Body tùy chọn: `maLopHocPhan` để giới hạn trong một lớp, `khoaHoc`
 Người đã có mặt trong lớp với đúng vai trò sẽ bị bỏ qua.
 
 Vai trò trên Moodle: sinh viên = 5, giảng viên chính = 3, trợ giảng = 4 (`IsTroGiang = 1`).
+
+### Dọn ghi danh nhầm cơ sở
+
+`POST /api/enrollments/cleanup-campus`
+
+Trước khi shortname có mã cơ sở, cùng một mã lớp học phần dạy ở hai cơ sở dồn chung vào
+MỘT khóa học của cơ sở chính, nên sinh viên cơ sở khác bị ghi danh nhầm vào đó. Sau khi
+tách khóa học riêng, endpoint này gỡ họ ra.
+
+Chỉ gỡ sinh viên thỏa **cả hai** điều kiện: có đăng ký lớp học phần đó ở cơ sở khác,
+và **không** có đăng ký lớp đó ở cơ sở chính. Em học ở cả hai nơi được giữ nguyên.
+Giảng viên và trợ giảng không bị đụng tới.
+
+| Tham số | Mặc định | Ý nghĩa |
+|---|---|---|
+| `apply` | `false` | `false` chỉ liệt kê, không gỡ ai; `true` mới gỡ thật |
+| `confirm` | `false` | Bắt buộc `true` khi `apply=true` |
+
+Luôn quét **cả đợt**, không nhận bộ lọc khóa: thiếu một phần dữ liệu là xác định sai ai
+chỉ học ở cơ sở khác và gỡ nhầm người.
+
+Cả hai chế độ đều xuất CSV + Excel để đối chiếu trước/sau. Trên giao diện là thẻ
+**Dọn ghi danh nhầm cơ sở** ở tab Đồng bộ, có nút *Xem trước danh sách* và *Gỡ thật*.
 
 ### Đọc dữ liệu SQL Server — lọc được theo mọi trường
 

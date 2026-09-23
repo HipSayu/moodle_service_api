@@ -25,7 +25,16 @@ router.post("/scheduler/jobs/:jobName/run", h(systemController.schedulerRunJob))
 // tenDot luôn bắt buộc, truyền trong body.
 
 router.post("/sync/students", h(syncController.syncStudents));
-router.post("/sync/students/:maSinhVien", h(syncController.syncStudents));
+
+// Theo mã sinh viên, không cần tenDot. Phải đứng TRƯỚC :maSinhVien
+// để "by-code" không bị hiểu là một mã sinh viên.
+router.post("/sync/students/by-code", h(syncController.syncStudentsByCode));
+
+// Theo lớp học danh nghĩa (ví dụ 70CS2), không cần tenDot. Phải đứng TRƯỚC :maSinhVien.
+router.post("/sync/students/by-class", h(syncController.syncStudentsByClass));
+router.post("/sync/students/by-class/:maLop", h(syncController.syncStudentsByClass));
+
+router.post("/sync/students/:maSinhVien", h(syncController.syncStudentsByCode));
 
 router.post("/sync/teachers", h(syncController.syncTeachers));
 router.post("/sync/teachers/:maGiangVien", h(syncController.syncTeachers));
@@ -33,6 +42,16 @@ router.post("/sync/teachers/:maGiangVien", h(syncController.syncTeachers));
 router.post("/sync/categories", h(syncController.syncCategories));
 
 router.post("/sync/courses", h(syncController.syncCourses));
+
+// Theo mã lớp học phần + học kỳ, không cần chọn khóa. Phải đứng TRƯỚC :maLopHocPhan.
+router.post("/sync/courses/by-code", h(syncController.syncCoursesByCode));
+router.post("/sync/courses/by-code/:maLopHocPhan", h(syncController.syncCoursesByCode));
+
+// Đồng bộ đầy đủ: tạo khóa học + ghi danh sinh viên + ghi danh giảng viên.
+// Cũng phải đứng TRƯỚC :maLopHocPhan.
+router.post("/sync/courses/full", h(syncController.syncCourseFull));
+router.post("/sync/courses/full/:maLopHocPhan", h(syncController.syncCourseFull));
+
 router.post("/sync/courses/:maLopHocPhan", h(syncController.syncCourses));
 
 router.post("/sync/grades", h(syncController.syncGrades));
@@ -47,6 +66,9 @@ router.post(
 );
 
 router.post("/enrollments/teachers", h(enrollmentController.enrollTeachers));
+
+// Gỡ sinh viên cơ sở khác khỏi khóa học dùng chung của cơ sở chính
+router.post("/enrollments/cleanup-campus", h(enrollmentController.cleanupCampus));
 router.post(
   "/enrollments/teachers/:maGiangVien",
   h(enrollmentController.enrollTeachers)

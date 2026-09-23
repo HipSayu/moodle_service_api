@@ -1,7 +1,7 @@
 import syncToMoodleService from "../services/syncToMoodleService.js";
 import databaseService from "../services/databaseService.js";
 import { fail, syncResult } from "../utils/response.js";
-import { getTenDot, getParam } from "../utils/requestParams.js";
+import { getTenDot, getParam, getBool } from "../utils/requestParams.js";
 
 // Khóa (K70, K71...) là bộ lọc tùy chọn của mọi tác vụ đồng bộ, cho phép
 // chạy từng khóa trong đợt thay vì cả đợt một lần.
@@ -70,4 +70,35 @@ const enrollTeachers = async (req, res) => {
   });
 };
 
-export default { enrollStudents, enrollTeachers };
+// Gỡ sinh viên cơ sở khác ra khỏi khóa học dùng chung của cơ sở chính.
+// POST /api/enrollments/cleanup-campus
+// Mặc định chỉ xem trước; muốn gỡ thật phải gửi apply=true kèm confirm=true.
+const cleanupCampus = async (req, res) => {
+  const tenDot = getTenDot(req);
+  if (!tenDot) return fail(res, { message: "Thiếu tenDot trong body" });
+
+  const apply = getBool(req, "apply");
+
+  if (apply && !getBool(req, "confirm")) {
+    return fail(res, {
+      message:
+        "Gỡ ghi danh không hoàn tác được. Chạy trước với apply=false để xem danh sách, sau đó gửi apply=true kèm confirm=true.",
+    });
+  }
+
+  const data = await syncToMoodleService.cleanupCrossCampusEnrollments({
+    tenDot,
+    apply,
+  });
+
+  return syncResult(res, {
+    message: data.notFound
+      ? `Không tìm thấy đăng ký học phần nào trong đợt ${tenDot}`
+      : apply
+        ? `Đã gỡ ${data.succeeded} lượt ghi danh nhầm cơ sở khỏi ${data.soLopCanDon} lớp, lỗi ${data.failed}`
+        : `Xem trước: ${data.succeeded} lượt cần gỡ ở ${data.soLopCanDon} lớp (đã kiểm tra ${data.soLopKiemTra} lớp). Gửi apply=true&confirm=true để gỡ thật.`,
+    data,
+  });
+};
+
+export default { enrollStudents, enrollTeachers, cleanupCampus };

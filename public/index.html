@@ -83,8 +83,12 @@
           </label>
           <button class="btn btn-primary" data-action="sync" data-path="/api/sync/students">Toàn bộ đợt</button>
           <div class="input-group">
-            <input type="text" data-one-input="students" placeholder="Mã sinh viên">
-            <button class="btn" data-action="sync-one" data-path="/api/sync/students" data-key="students">Một SV</button>
+            <input type="text" data-one-input="students" placeholder="Mã SV, nhiều mã cách nhau dấu phẩy">
+            <button class="btn" data-action="sync-one" data-path="/api/sync/students" data-key="students" title="Tra thẳng hồ sơ theo mã, không cần chọn học kỳ">Theo mã</button>
+          </div>
+          <div class="input-group">
+            <input type="text" data-one-input="students-by-class" placeholder="Mã lớp danh nghĩa, ví dụ 70CS2">
+            <button class="btn" data-action="sync-one" data-path="/api/sync/students/by-class" data-key="students-by-class" title="Tự động lấy hết sinh viên đang học trong lớp, không cần chọn học kỳ">Theo lớp danh nghĩa</button>
           </div>
         </div>
       </article>
@@ -116,6 +120,27 @@
             <input type="text" data-one-input="courses" placeholder="Mã lớp học phần">
             <button class="btn" data-action="sync-one" data-path="/api/sync/courses" data-key="courses">Một lớp</button>
           </div>
+          <div class="input-group">
+            <input type="text" data-one-input="courses-by-code" placeholder="Mã lớp học phần, ví dụ 417688">
+            <button class="btn" data-action="sync-one" data-path="/api/sync/courses/by-code" data-key="courses-by-code" title="Học kỳ lấy từ ô Học kỳ (đợt) ở thanh trên, không cần chọn khóa">Theo mã + học kỳ</button>
+          </div>
+        </div>
+      </article>
+
+      <article class="card" data-sync="course-full">
+        <header>
+          <h3>Đồng bộ đầy đủ 1 lớp học phần</h3>
+          <span class="tag">course + enrol</span>
+        </header>
+        <p>Nhập mã lớp học phần: tạo khóa học trên Moodle (nếu chưa có) rồi <strong>ghi danh luôn
+          cả sinh viên và giảng viên</strong> của lớp đó vào khóa học — không cần gọi 3 thẻ riêng lẻ.
+          Học kỳ lấy từ ô <strong>Học kỳ (đợt)</strong> ở thanh trên. Sinh viên/giảng viên cần đã có
+          tài khoản Moodle từ trước, ai chưa có sẽ bị bỏ qua ở bước ghi danh.</p>
+        <div class="card-actions">
+          <div class="input-group">
+            <input type="text" data-one-input="course-full" placeholder="Mã lớp học phần, ví dụ 417688">
+            <button class="btn btn-primary" data-action="sync-one" data-path="/api/sync/courses/full" data-key="course-full">Đồng bộ + ghi danh</button>
+          </div>
         </div>
       </article>
 
@@ -146,6 +171,19 @@
             <input type="text" data-one-input="enroll-teachers" placeholder="Mã GV hoặc email">
             <button class="btn" data-action="sync-one" data-path="/api/enrollments/teachers" data-key="enroll-teachers">Một GV</button>
           </div>
+        </div>
+      </article>
+
+      <article class="card" data-sync="cleanup-campus">
+        <header>
+          <h3>Dọn ghi danh nhầm cơ sở</h3>
+          <span class="tag">unenrol</span>
+        </header>
+        <p>Trước đây cùng mã lớp học phần ở hai cơ sở dùng chung một khóa học. Thẻ này gỡ sinh viên
+          <strong>cơ sở khác</strong> ra khỏi khóa học của cơ sở chính. Em nào học ở cả hai nơi thì giữ nguyên.</p>
+        <div class="card-actions">
+          <button class="btn btn-primary" data-action="cleanup-preview">Xem trước danh sách</button>
+          <button class="btn" data-action="cleanup-apply">Gỡ thật</button>
         </div>
       </article>
 

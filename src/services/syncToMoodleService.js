@@ -28,10 +28,33 @@ const MAX_ERRORS_RETURNED = 50;
 class SyncToMoodleService {
   // ==================== HELPERS ====================
 
+  // Mã cơ sở chèn vào shortname. Rỗng nghĩa là không chèn.
+  //
+  // Cơ sở chính được bỏ qua có chủ đích: hơn 11.000 khóa học đã đồng bộ từ trước
+  // mang shortname <MaLopHocPhan>_<TenDot>. Nếu đổi hết thì mọi lần tra cứu đều
+  // trượt và service sẽ tạo lại toàn bộ khóa học thành bản sao rỗng.
+  // Đặt SHORTNAME_ALWAYS_CAMPUS=true nếu dựng Moodle mới từ đầu.
+  campusTag(row) {
+    const id = parseInt(row.IDCoSo, 10);
+    if (!Number.isInteger(id)) return "";
+    if (!config.sync.alwaysCampusInShortname && id === config.sync.mainCampusId) {
+      return "";
+    }
+
+    // Bỏ khoảng trắng để shortname không có dấu cách thừa
+    return String(row.MaCoSo || `CS${id}`).trim().replace(/\s+/g, "");
+  }
+
   // Shortname/idnumber của khóa học trên Moodle.
   // Dùng thống nhất ở mọi nơi: tạo course, tra course, đăng ký, chấm điểm.
+  //   cơ sở chính : <MaLopHocPhan>_<TenDot>
+  //   cơ sở khác  : <MaLopHocPhan>_<MaCoSo>_<TenDot>
+  // Cùng một mã lớp học phần dạy ở hai cơ sở trước đây dồn vào chung một khóa học.
   buildShortname(row) {
-    return `${row.MaLopHocPhan}_${row.TenDot}`;
+    const campus = this.campusTag(row);
+    return campus
+      ? `${row.MaLopHocPhan}_${campus}_${row.TenDot}`
+      : `${row.MaLopHocPhan}_${row.TenDot}`;
   }
 
   // Email dùng làm tài khoản Moodle của sinh viên.
@@ -187,6 +210,7 @@ class SyncToMoodleService {
 
   // Đồng bộ sinh viên sang Moodle.
   // maSinhVien: chỉ đồng bộ 1 sinh viên; bỏ trống thì đồng bộ cả đợt.
+  // maLop: LỚP HỌC DANH NGHĨA (ví dụ 70CS2) — tự động lấy hết sinh viên trong lớp, không cần đợt.
   // toanKhoa = true: lấy theo HỒ SƠ khóa, gồm cả em chưa đăng ký học phần nào.
   // Mặc định (false) chỉ lấy em có đăng ký trong đợt — đúng phạm vi cần ghi danh.
   async syncStudents({
@@ -196,24 +220,55 @@ class SyncToMoodleService {
     tenKhoaHoc = null,
     toanKhoa = false,
     chiDangHoc = true,
+    theoMa = false,
+    maLop = null,
   } = {}) {
-    const scope = maSinhVien
-      ? `sinh viên ${maSinhVien}`
-      : toanKhoa
-        ? `toàn khóa ${tenKhoaHoc || idKhoaHoc} (theo hồ sơ)`
-        : this.scopeLabel(tenDot, tenKhoaHoc);
+    const scope = maLop
+      ? `lớp học danh nghĩa ${maLop}`
+      : theoMa
+        ? `theo mã sinh viên (không cần đợt)`
+        : maSinhVien
+          ? `sinh viên ${maSinhVien}`
+          : toanKhoa
+            ? `toàn khóa ${tenKhoaHoc || idKhoaHoc} (theo hồ sơ)`
+            : this.scopeLabel(tenDot, tenKhoaHoc);
     syncLogger.info(`Bắt đầu đồng bộ sinh viên (${scope})`);
 
-    const students = this.uniqueBy(
-      toanKhoa && !maSinhVien
-        ? await databaseService.getCohortStudents({ idKhoaHoc, chiDangHoc })
-        : await databaseService.getStudents({ tenDot, maSinhVien, idKhoaHoc }),
-      (row) => row.MaSinhVien
-    );
+    // Tra thẳng hồ sơ theo mã / theo lớp: không cần đợt, không cần đăng ký học phần
+    let khongTimThay = [];
+    let nguon;
+
+    if (maLop) {
+      const result = await databaseService.getStudentsByClassCode(maLop, { chiDangHoc });
+      nguon = result.rows;
+      khongTimThay = result.notFound;
+
+      if (khongTimThay.length > 0) {
+        syncLogger.warn(
+          `Không tìm thấy sinh viên nào cho lớp: ${khongTimThay.join(", ")}`
+        );
+      }
+    } else if (theoMa) {
+      const result = await databaseService.getStudentsByCodes(maSinhVien);
+      nguon = result.rows;
+      khongTimThay = result.notFound;
+
+      if (khongTimThay.length > 0) {
+        syncLogger.warn(
+          `Không có hồ sơ cho ${khongTimThay.length} mã: ${khongTimThay.slice(0, 20).join(", ")}`
+        );
+      }
+    } else if (toanKhoa && !maSinhVien) {
+      nguon = await databaseService.getCohortStudents({ idKhoaHoc, chiDangHoc });
+    } else {
+      nguon = await databaseService.getStudents({ tenDot, maSinhVien, idKhoaHoc });
+    }
+
+    const students = this.uniqueBy(nguon, (row) => row.MaSinhVien);
 
     if (students.length === 0) {
       syncLogger.warn(`Không tìm thấy sinh viên nào (${scope})`);
-      return this.buildResult({ notFound: true, details: [] });
+      return this.buildResult({ notFound: true, khongTimThay, details: [] });
     }
 
     const progress = createProgress(`Sinh viên · ${scope}`, students.length);
@@ -325,6 +380,8 @@ class SyncToMoodleService {
       errors,
       csvFile,
       excelFile,
+      // Mã gửi lên nhưng không có hồ sơ trong DT_SinhVien
+      khongTimThay,
       details: maSinhVien ? rows : undefined,
     });
   }
@@ -617,7 +674,9 @@ class SyncToMoodleService {
         }
 
         const courseData = {
-          course_fullname: `${course.TenLopHoc} - ${course.TenMonHoc} - ${course.TenDot}`,
+          course_fullname:
+            `${course.TenLopHoc} - ${course.TenMonHoc} - ${course.TenDot}` +
+            (this.campusTag(course) && course.TenCoSo ? ` (${course.TenCoSo})` : ""),
           course_shortname: shortname,
           course_categoryid: categoryId,
           course_idnumber: shortname,
@@ -924,6 +983,176 @@ class SyncToMoodleService {
 
   // IsTroGiang = 1 -> Trợ giảng (role 4), ngược lại -> Giảng viên chính (role 3).
   // Giảng viên đã có trong lớp với đúng role thì bỏ qua.
+  // ==================== DỌN GHI DANH NHẦM CƠ SỞ ====================
+
+  // Trước khi shortname có mã cơ sở, cùng một mã lớp học phần dạy ở hai cơ sở
+  // dồn chung vào MỘT khóa học Moodle của cơ sở chính. Sinh viên cơ sở khác vì thế
+  // bị ghi danh nhầm vào đó. Sau khi tách khóa học riêng, hàm này gỡ họ ra.
+  //
+  // Chỉ gỡ sinh viên thỏa CẢ HAI điều kiện:
+  //   - có đăng ký lớp học phần đó ở cơ sở KHÁC cơ sở chính
+  //   - KHÔNG có đăng ký lớp học phần đó ở chính cơ sở chính
+  // Em nào học ở cả hai nơi thì giữ nguyên.
+  //
+  // apply = false (mặc định) chỉ liệt kê, không gọi Moodle gỡ ai.
+  async cleanupCrossCampusEnrollments({ tenDot, apply = false } = {}) {
+    const scope = `đợt ${tenDot}`;
+    syncLogger.info(
+      `Bắt đầu ${apply ? "DỌN" : "xem trước"} ghi danh nhầm cơ sở (${scope})`
+    );
+
+    // Quét cả đợt, không lọc theo khóa: thiếu một phần dữ liệu là xác định sai
+    // ai "chỉ học ở cơ sở khác" và gỡ nhầm người.
+    const enrollments = await databaseService.getStudentEnrollments({ tenDot });
+
+    if (enrollments.length === 0) {
+      syncLogger.warn(`Không tìm thấy đăng ký học phần nào (${scope})`);
+      return this.buildResult({ notFound: true, details: [] });
+    }
+
+    // Gom theo shortname của khóa học CƠ SỞ CHÍNH (tên cũ dùng chung)
+    const byCourse = new Map();
+    for (const row of enrollments) {
+      const shared = `${row.MaLopHocPhan}_${row.TenDot}`;
+      if (!byCourse.has(shared)) {
+        byCourse.set(shared, {
+          shortname: shared,
+          MaLopHocPhan: row.MaLopHocPhan,
+          TenMonHoc: row.TenMonHoc,
+          coSoChinh: new Set(),
+          coSoKhac: new Map(),
+        });
+      }
+
+      const group = byCourse.get(shared);
+      if (this.campusTag(row)) group.coSoKhac.set(row.MaSinhVien, row);
+      else group.coSoChinh.add(row.MaSinhVien);
+    }
+
+    // Chỉ những lớp thực sự có sinh viên cơ sở khác mới cần kiểm tra
+    const candidates = [...byCourse.values()].filter((g) => g.coSoKhac.size > 0);
+    syncLogger.info(
+      `${candidates.length}/${byCourse.size} lớp có sinh viên cơ sở khác, đang đối chiếu với Moodle`
+    );
+
+    if (candidates.length === 0) {
+      return this.buildResult({ total: 0, details: [], apply });
+    }
+
+    const progress = createProgress(
+      `Dọn ghi danh nhầm cơ sở · ${scope}`,
+      candidates.length
+    );
+
+    let goBo = 0;
+    let loi = 0;
+    let khongCoLop = 0;
+    const errors = [];
+    const rows = [];
+
+    for (const group of candidates) {
+      try {
+        const course = await moodleService.getCourseByShortname(group.shortname);
+
+        if (!course) {
+          khongCoLop++;
+          progress.tick("Không có lớp");
+          continue;
+        }
+
+        const enrolled = await moodleService.getEnrolledUsers(course.id);
+
+        for (const user of enrolled || []) {
+          const maSinhVien = String(user.idnumber || "").trim();
+          const info = group.coSoKhac.get(maSinhVien);
+
+          // Không phải sinh viên cơ sở khác, hoặc có học cả ở cơ sở chính -> giữ nguyên
+          if (!info || group.coSoChinh.has(maSinhVien)) continue;
+
+          const laSinhVien = (user.roles || []).some(
+            (role) => role.roleid === ROLE.STUDENT
+          );
+          if (!laSinhVien) continue;
+
+          const row = {
+            MaLopHocPhan: group.MaLopHocPhan,
+            TenMonHoc: group.TenMonHoc,
+            ShortName: group.shortname,
+            MaSinhVien: maSinhVien,
+            HoTenSinhVien: info.HoTenSinhVien,
+            CoSo: info.TenCoSo || "",
+            ShortNameDung: this.buildShortname(info),
+            MoodleUserId: user.id,
+            MoodleCourseId: course.id,
+            TrangThai: apply ? "Đã gỡ" : "Sẽ gỡ",
+            LoiChiTiet: "",
+            ThoiGian: new Date().toISOString(),
+          };
+
+          if (apply) {
+            try {
+              await moodleService.unenrollUserFromCourse(user.id, course.id);
+              goBo++;
+            } catch (error) {
+              loi++;
+              row.TrangThai = "Lỗi";
+              row.LoiChiTiet = error.message;
+              errors.push({
+                MaSinhVien: maSinhVien,
+                shortname: group.shortname,
+                error: error.message,
+              });
+              syncLogger.error(
+                `Gỡ sinh viên ${maSinhVien} khỏi ${group.shortname} lỗi: ${error.message}`
+              );
+            }
+          } else {
+            goBo++;
+          }
+
+          rows.push(row);
+        }
+
+        progress.tick("Đã kiểm tra");
+      } catch (error) {
+        loi++;
+        errors.push({ shortname: group.shortname, error: error.message });
+        syncLogger.error(`Kiểm tra lớp ${group.shortname} lỗi: ${error.message}`);
+        progress.tick("Lỗi");
+      }
+    }
+
+    progress.finish();
+
+    const csvFile = await CSVHelper.saveRows(
+      rows,
+      apply ? "cleanup_campus_applied" : "cleanup_campus_preview"
+    );
+    const excelFile = await ExcelHelper.saveRows(
+      rows,
+      apply ? "cleanup_campus_applied" : "cleanup_campus_preview",
+      { groupBy: "ShortName", meta: { "Phạm vi": scope, "Chế độ": apply ? "Đã gỡ thật" : "Chỉ xem trước" } }
+    );
+
+    syncLogger.warn(
+      `${apply ? "Đã gỡ" : "Sẽ gỡ"} ${goBo} lượt ghi danh nhầm cơ sở khỏi ${new Set(rows.map((r) => r.ShortName)).size} lớp, lỗi ${loi}`
+    );
+
+    return this.buildResult({
+      total: rows.length,
+      succeeded: goBo,
+      skipped: khongCoLop,
+      failed: loi,
+      errors,
+      apply,
+      soLopKiemTra: candidates.length,
+      soLopCanDon: new Set(rows.map((r) => r.ShortName)).size,
+      csvFile,
+      excelFile,
+      details: rows.slice(0, 200),
+    });
+  }
+
   async syncTeacherEnrollments({
     tenDot,
     maGiangVien = null,
@@ -1434,6 +1663,43 @@ class SyncToMoodleService {
   }
 
   // ==================== TỔNG HỢP ====================
+
+  // Đồng bộ ĐẦY ĐỦ 1 lớp học phần theo mã + học kỳ: tạo khóa học trên Moodle
+  // (nếu chưa có) rồi ghi danh cả sinh viên và giảng viên vào khóa học đó.
+  // Không cần chọn khóa (K70, K71...) — chỉ cần biết mã lớp học phần + học kỳ.
+  //
+  // Sinh viên/giảng viên phải ĐÃ CÓ tài khoản Moodle từ trước (đồng bộ sinh viên/
+  // giảng viên chạy riêng); người chưa có tài khoản bị bỏ qua ở bước ghi danh,
+  // không chặn cả lớp — chi tiết nằm trong data.students/data.teachers.
+  async syncCourseFull({ tenDot, maLopHocPhan } = {}) {
+    const scope = `lớp ${maLopHocPhan} (${tenDot})`;
+    syncLogger.info(`Bắt đầu đồng bộ đầy đủ ${scope}`);
+    const startTime = new Date();
+
+    const course = await this.syncCourses({ tenDot, maLopHocPhan });
+    const students = await this.syncStudentEnrollments({ tenDot, maLopHocPhan });
+    const teachers = await this.syncTeacherEnrollments({ tenDot, maLopHocPhan });
+
+    const notFound = Boolean(course.notFound && students.notFound && teachers.notFound);
+    const failed = (course.failed || 0) + (students.failed || 0) + (teachers.failed || 0);
+
+    syncLogger.info(
+      `Đồng bộ đầy đủ ${scope} xong: khóa học tạo mới ${course.created ?? 0}, ` +
+        `SV ghi danh mới ${students.succeeded ?? 0}, GV ghi danh mới ${teachers.succeeded ?? 0}, tổng lỗi ${failed}`
+    );
+
+    return this.buildResult({
+      total: (course.total || 0) + (students.total || 0) + (teachers.total || 0),
+      succeeded: (course.succeeded || 0) + (students.succeeded || 0) + (teachers.succeeded || 0),
+      skipped: (course.skipped || 0) + (students.skipped || 0) + (teachers.skipped || 0),
+      failed,
+      notFound,
+      course,
+      students,
+      teachers,
+      durationMs: new Date() - startTime,
+    });
+  }
 
   // Chạy tuần tự: sinh viên -> giảng viên -> khóa học -> đăng ký SV -> đăng ký GV.
   // Một bước lỗi không chặn các bước sau.

@@ -133,7 +133,7 @@ const DOT = encodeURIComponent(TEN_DOT);
 const meta = await call('GET', '/api/data/grades/fields');
 check(
   'Metadata trường của dataset',
-  meta.status === 200 && meta.body?.data?.columns?.length === 15,
+  meta.status === 200 && meta.body?.data?.columns?.length === 18,
   `${meta.body?.data?.columns?.length} trường`
 );
 
