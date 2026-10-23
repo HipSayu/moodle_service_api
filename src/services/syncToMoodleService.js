@@ -791,6 +791,7 @@ class SyncToMoodleService {
   // ==================== ĐĂNG KÝ SINH VIÊN VÀO LỚP ====================
 
   // Sinh viên đã có trong lớp thì bỏ qua, không gọi lại Moodle.
+  // maSinhVien: 1 mã, nhiều mã phân tách bởi dấu phẩy, hoặc mảng mã.
   async syncStudentEnrollments({
     tenDot,
     maSinhVien = null,

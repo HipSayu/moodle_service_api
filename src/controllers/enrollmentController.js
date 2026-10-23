@@ -18,6 +18,7 @@ const khoaSuffix = (tenKhoaHoc) => (tenKhoaHoc ? ` — khóa ${tenKhoaHoc}` : ""
 
 // Đăng ký sinh viên vào lớp trên Moodle.
 // POST /api/enrollments/students hoặc /api/enrollments/students/:maSinhVien
+// maSinhVien nhận 1 mã, nhiều mã phân tách bởi dấu phẩy (ví dụ "SV001,SV002"), hoặc mảng mã.
 // Sinh viên đã có trong lớp thì bỏ qua.
 const enrollStudents = async (req, res) => {
   const tenDot = getTenDot(req);

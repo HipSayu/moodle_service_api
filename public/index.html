@@ -153,8 +153,8 @@
         <div class="card-actions">
           <button class="btn btn-primary" data-action="sync" data-path="/api/enrollments/students">Toàn bộ đợt</button>
           <div class="input-group">
-            <input type="text" data-one-input="enroll-students" placeholder="Mã sinh viên">
-            <button class="btn" data-action="sync-one" data-path="/api/enrollments/students" data-key="enroll-students">Một SV</button>
+            <input type="text" data-one-input="enroll-students" placeholder="Mã SV, nhiều mã cách nhau dấu phẩy">
+            <button class="btn" data-action="sync-one" data-path="/api/enrollments/students" data-key="enroll-students">Theo mã SV</button>
           </div>
         </div>
       </article>
@@ -306,6 +306,7 @@
       <div class="merge-bar-info">
         <strong id="mergeCount">Chưa chọn lớp nào</strong>
         <span id="mergeList" class="merge-list"></span>
+        <span class="hint">Bấm ☆ trên một lớp để giữ lại lớp đó (các lớp còn lại sẽ bị xóa sau khi chuyển thành viên), hoặc để trống để tạo lớp mới.</span>
       </div>
       <button id="mergeClear" class="btn btn-ghost btn-sm" type="button">Bỏ chọn</button>
       <button id="mergeOpen" class="btn btn-primary" type="button" disabled>Gộp lớp đã chọn</button>
@@ -318,19 +319,22 @@
     <!-- form gộp lớp -->
     <section class="merge-form" id="mergeForm" hidden>
       <div class="merge-form-head">
-        <h3>Gộp lớp thành một lớp mới</h3>
+        <h3 id="mergeFormTitle">Gộp lớp thành một lớp mới</h3>
         <button id="mergeCancel" class="btn btn-ghost btn-sm" type="button">Đóng</button>
       </div>
 
       <p class="warn-note">
-        Chỉ <strong>thành viên</strong> được chuyển sang lớp mới (giữ nguyên vai trò, người ở cả hai lớp chỉ vào một lần).
-        Nội dung, bài tập, bài nộp và điểm của lớp nguồn <strong>không chuyển được</strong> và sẽ mất khi xóa lớp nguồn.
+        Chỉ <strong>thành viên</strong> được chuyển sang lớp đích (giữ nguyên vai trò, người ở nhiều lớp chỉ vào một lần).
+        Nội dung, bài tập, bài nộp và điểm của lớp nguồn <strong>không chuyển được</strong> và sẽ mất khi xóa lớp nguồn —
+        nếu cần giữ bài giảng, hãy tự <em>Import</em> nội dung sang lớp đích trên Moodle trước khi xóa.
         Nếu còn thành viên chuyển lỗi, hệ thống tự động <strong>không xóa</strong> lớp nguồn.
       </p>
 
       <div id="mergePreview" class="merge-preview"></div>
 
-      <div class="merge-fields">
+      <p id="mergeTargetInfo" class="hint" hidden></p>
+
+      <div id="mergeFields" class="merge-fields">
         <label class="field">
           <span>Tên lớp mới (fullname) *</span>
           <input id="mergeFullname" type="text" placeholder="Tên đầy đủ của lớp gộp">

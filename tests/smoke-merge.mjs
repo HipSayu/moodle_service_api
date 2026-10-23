@@ -190,6 +190,54 @@ check('Có cảnh báo cho người vận hành', (partial.body?.data?.warnings 
 check('Những người còn lại vẫn được chuyển', state.enrolled.length === 2, `${state.enrolled.length} enrolment`);
 check('Người lỗi không bị bỏ sót khỏi báo cáo', (partial.body?.data?.details || []).some((d) => d.TrangThai === 'Lỗi'));
 
+console.log('\n=== CHUYỂN VÀO LỚP CÓ SẴN (targetCourseId) ===');
+reset();
+
+const previewExisting = await call('POST', '/api/moodle/courses/merge/preview', {
+  sourceCourseIds: [902], targetCourseId: 901,
+});
+check('Preview existing HTTP 200', previewExisting.status === 200, `HTTP ${previewExisting.status}`);
+check('mode = existing', previewExisting.body?.data?.mode === 'existing');
+check('Lớp đích đúng là 901', previewExisting.body?.data?.target?.id === 901);
+// 902 có SV 101 (đã có sẵn ở 901) và SV 102 (mới) -> incoming 2, newMembers 1, alreadyInTarget 1
+check('incoming = 2', previewExisting.body?.data?.members?.incoming === 2, `${previewExisting.body?.data?.members?.incoming}`);
+check('newMembers = 1', previewExisting.body?.data?.members?.newMembers === 1);
+check('alreadyInTarget = 1', previewExisting.body?.data?.members?.alreadyInTarget === 1);
+
+const targetInSources = await call('POST', '/api/moodle/courses/merge/preview', {
+  sourceCourseIds: [901, 902], targetCourseId: 901,
+});
+check('Lớp đích nằm trong danh sách nguồn -> 400', targetInSources.status === 400, targetInSources.body?.message);
+
+const noSource = await call('POST', '/api/moodle/courses/merge/preview', {
+  sourceCourseIds: [], targetCourseId: 901,
+});
+check('Thiếu lớp nguồn -> 400', noSource.status === 400, noSource.body?.message);
+
+const mergedExisting = await call('POST', '/api/moodle/courses/merge', {
+  sourceCourseIds: [902], targetCourseId: 901, confirm: true,
+});
+const dataExisting = mergedExisting.body?.data;
+check('HTTP 200', mergedExisting.status === 200, `HTTP ${mergedExisting.status}`);
+check('Không tạo lớp mới', state.created.length === 0);
+check(
+  'Chỉ enrol người mới (102), bỏ qua 101 đã có sẵn',
+  state.enrolled.length === 1 && state.enrolled[0]?.userId === 102,
+  JSON.stringify(state.enrolled)
+);
+check('Enrol đúng vào lớp đích 901', state.enrolled.every((e) => e.courseId === 901));
+check(
+  'Không tạo thêm section vì lớp đích đã có sẵn tên đó',
+  state.sections.length === 0,
+  state.sections.join(', ')
+);
+check('Chỉ xóa lớp nguồn 902, không đụng lớp đích 901', state.deleted.length === 1 && state.deleted[0] === 902);
+check(
+  'targetCourse trả đúng lớp có sẵn 901',
+  dataExisting?.targetCourse?.id === 901 && dataExisting?.targetCourse?.existing === true
+);
+check('skipped tính đúng người đã có sẵn trong lớp đích', dataExisting?.skipped === 1, `skipped=${dataExisting?.skipped}`);
+
 console.log(failures === 0 ? '\nPASS  luồng gộp lớp hoạt động đúng' : `\nFAIL  ${failures} kiểm tra không đạt`);
 
 server.close();

@@ -60,20 +60,25 @@ const listCategories = async (req, res) => {
   });
 };
 
-// Xem trước kết quả gộp lớp: thành viên hợp nhất, số người trùng, gợi ý tên lớp mới
+// Xem trước kết quả gộp lớp: thành viên hợp nhất, số người trùng, gợi ý tên lớp mới.
+// targetCourseId có giá trị -> xem trước kiểu "chuyển vào lớp có sẵn".
 const previewMergeCourses = async (req, res) => {
   const data = await courseMergeService.previewMerge({
     sourceCourseIds: getCourseIds(req),
+    targetCourseId: getInt(req, "targetCourseId"),
   });
 
-  return ok(res, {
-    message: `Gộp ${data.sources.length} lớp sẽ được ${data.members.unique} thành viên (${data.members.duplicated} lượt trùng)`,
-    data,
-  });
+  const message =
+    data.mode === "existing"
+      ? `Chuyển ${data.members.incoming} thành viên từ ${data.sources.length} lớp vào "${data.target.shortname}" — ${data.members.newMembers} người mới, ${data.members.alreadyInTarget} đã có sẵn`
+      : `Gộp ${data.sources.length} lớp sẽ được ${data.members.unique} thành viên (${data.members.duplicated} lượt trùng)`;
+
+  return ok(res, { message, data });
 };
 
-// Gộp nhiều lớp thành một lớp mới rồi xóa lớp nguồn.
-// Xóa lớp không hoàn tác được nên bắt xác nhận rõ ràng.
+// Gộp nhiều lớp. Có targetCourseId -> chuyển SV/GV sang lớp có sẵn đó (giữ
+// nguyên nội dung lớp đích). Không có -> tạo lớp mới rồi chuyển vào (như cũ).
+// Lớp nguồn luôn bị xóa khi gộp xong, trừ khi deleteSources=false.
 const mergeCourses = async (req, res) => {
   const deleteSources = getBool(req, "deleteSources", true);
 
@@ -84,8 +89,11 @@ const mergeCourses = async (req, res) => {
     });
   }
 
+  const targetCourseId = getInt(req, "targetCourseId");
+
   const data = await courseMergeService.mergeCourses({
     sourceCourseIds: getCourseIds(req),
+    targetCourseId,
     fullname: getParam(req, "fullname"),
     shortname: getParam(req, "shortname"),
     idnumber: getParam(req, "idnumber"),
@@ -95,8 +103,10 @@ const mergeCourses = async (req, res) => {
     deleteSources,
   });
 
+  const action = targetCourseId ? "Đã chuyển vào lớp" : "Đã tạo lớp";
+
   return syncResult(res, {
-    message: `Đã tạo lớp "${data.targetCourse.shortname}" (id ${data.targetCourse.id}), chuyển ${data.succeeded}/${data.total} thành viên, xóa ${data.deletedCourseIds.length}/${data.sources.length} lớp nguồn`,
+    message: `${action} "${data.targetCourse.shortname}" (id ${data.targetCourse.id}), chuyển ${data.succeeded}/${data.total} thành viên, xóa ${data.deletedCourseIds.length}/${data.sources.length} lớp nguồn`,
     data,
   });
 };

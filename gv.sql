@@ -193,6 +193,62 @@ LEFT JOIN dbo.DM_ChucVu cv WITH (NOLOCK) ON gv.IDChucVu = cv.Id
 LEFT JOIN dbo.DM_Khoa k WITH (NOLOCK) ON gv.IDKhoa = k.Id
 ORDER BY gv.MaGiangVien;
 
+-- Query lấy các lớp học phần theo email HOẶC mã giảng viên (1 tham số, khớp cái nào cũng được)
+-- Lọc theo đợt/học kỳ (TenDot), để trống '%' nếu muốn lấy mọi học kỳ
+DECLARE @MaHoacEmail NVARCHAR(100) = N'01025';  -- Thay bằng mã giảng viên hoặc email cần tìm
+DECLARE @TenDot NVARCHAR(100) = N'HK1 2026-2027'; -- Đợt/học kỳ cần tìm
+
+SELECT DISTINCT
+    gv.MaGiangVien,
+    gv.HoDem + N' ' + gv.Ten AS HoTenGiangVien,
+    gv.Email,
+    d.TenDot,
+    lhp.MaLopHocPhan,
+    mh.TenMonHoc,
+    lhoc.TenLopHoc,
+    CASE WHEN lhgv.IsTroGiang = 1 THEN N'Trợ giảng' ELSE N'Giảng viên chính' END AS VaiTro
+FROM dbo.DM_GiangVien gv WITH (NOLOCK)
+INNER JOIN dbo.TKB_LichHocGiangVien lhgv WITH (NOLOCK) ON lhgv.IDGiangVien = gv.Id
+INNER JOIN dbo.TKB_LichHoc lh WITH (NOLOCK) ON lh.Id = lhgv.IDLichHoc
+INNER JOIN dbo.TKB_LopXepLichHoc lxl WITH (NOLOCK) ON lxl.Id = lh.IDLopXepLichHoc
+INNER JOIN dbo.TKB_DanhSachLopXepLichHoc ds WITH (NOLOCK) ON ds.IDLopXepLichHoc = lxl.Id
+INNER JOIN dbo.TKB_LopHocPhan lhp WITH (NOLOCK) ON lhp.Id = ds.IDLopHocPhan
+INNER JOIN dbo.TKB_MonHoc mh WITH (NOLOCK) ON mh.Id = lhp.IDMonHoc
+INNER JOIN dbo.TKB_LopHoc lhoc WITH (NOLOCK) ON lhoc.Id = mh.IDLopHoc
+INNER JOIN dbo.DM_Dot d WITH (NOLOCK) ON d.Id = lhoc.IDDot
+WHERE (gv.MaGiangVien = @MaHoacEmail OR gv.Email = @MaHoacEmail)
+  AND d.TenDot LIKE @TenDot
+ORDER BY d.TenDot DESC, lhp.MaLopHocPhan;
+
+-- Biến thể: nhiều mã/email một lúc, cách nhau dấu phẩy (dùng STRING_SPLIT)
+DECLARE @DanhSachMaHoacEmail NVARCHAR(MAX) = N'01025,01026,giangvien@huce.edu.vn';
+DECLARE @TenDot2 NVARCHAR(100) = N'HK1 2026-2027'; -- Đợt/học kỳ cần tìm
+
+SELECT DISTINCT
+    gv.MaGiangVien,
+    gv.HoDem + N' ' + gv.Ten AS HoTenGiangVien,
+    gv.Email,
+    d.TenDot,
+    lhp.MaLopHocPhan,
+    mh.TenMonHoc,
+    lhoc.TenLopHoc,
+    CASE WHEN lhgv.IsTroGiang = 1 THEN N'Trợ giảng' ELSE N'Giảng viên chính' END AS VaiTro
+FROM dbo.DM_GiangVien gv WITH (NOLOCK)
+INNER JOIN dbo.TKB_LichHocGiangVien lhgv WITH (NOLOCK) ON lhgv.IDGiangVien = gv.Id
+INNER JOIN dbo.TKB_LichHoc lh WITH (NOLOCK) ON lh.Id = lhgv.IDLichHoc
+INNER JOIN dbo.TKB_LopXepLichHoc lxl WITH (NOLOCK) ON lxl.Id = lh.IDLopXepLichHoc
+INNER JOIN dbo.TKB_DanhSachLopXepLichHoc ds WITH (NOLOCK) ON ds.IDLopXepLichHoc = lxl.Id
+INNER JOIN dbo.TKB_LopHocPhan lhp WITH (NOLOCK) ON lhp.Id = ds.IDLopHocPhan
+INNER JOIN dbo.TKB_MonHoc mh WITH (NOLOCK) ON mh.Id = lhp.IDMonHoc
+INNER JOIN dbo.TKB_LopHoc lhoc WITH (NOLOCK) ON lhoc.Id = mh.IDLopHoc
+INNER JOIN dbo.DM_Dot d WITH (NOLOCK) ON d.Id = lhoc.IDDot
+WHERE (
+    gv.MaGiangVien IN (SELECT LTRIM(RTRIM(value)) FROM STRING_SPLIT(@DanhSachMaHoacEmail, ','))
+    OR gv.Email IN (SELECT LTRIM(RTRIM(value)) FROM STRING_SPLIT(@DanhSachMaHoacEmail, ','))
+  )
+  AND d.TenDot LIKE @TenDot2
+ORDER BY d.TenDot DESC, lhp.MaLopHocPhan;
+
 ALTER VIEW [dbo].[View_TKB_LichHocGiangVien]
 -- 09/12/2020 TranKhai: Bổ sung mh.SoTietTHBT
 -- 15/12/2020 TranKhai: Bổ sung IDLopDanhNghia

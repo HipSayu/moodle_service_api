@@ -488,6 +488,10 @@ curl -X POST localhost:3000/api/moodle/courses/merge/preview -H 'Content-Type: a
 
 curl -X POST localhost:3000/api/moodle/courses/merge -H 'Content-Type: application/json' \
   -d '{"sourceCourseIds":[901,902],"fullname":"67CS1+67CS2 - Toan","shortname":"GOP_67CS_HK1","confirm":true}'
+
+# Chuyển thành viên lớp 902 sang lớp có sẵn 901 (giữ nội dung của 901), rồi xóa lớp 902
+curl -X POST localhost:3000/api/moodle/courses/merge -H 'Content-Type: application/json' \
+  -d '{"targetCourseId":901,"sourceCourseIds":[902],"confirm":true}'
 ```
 
 ### Gộp lớp
@@ -496,6 +500,9 @@ Giao diện: tab **Dữ liệu Moodle → Khóa học**, lọc theo tên/mã l�
 danh mục, trạng thái hiện-ẩn; tích chọn từ 2 lớp trở lên rồi bấm **Gộp lớp đã chọn**.
 Lựa chọn được giữ nguyên khi đổi bộ lọc hoặc sang trang khác.
 
+Có 2 chế độ, chọn bằng việc có gửi `targetCourseId` hay không:
+
+**1. Tạo lớp mới (mặc định, không gửi `targetCourseId`)**
 Luồng xử lý: tạo lớp mới → sao chép tên các section của lớp nguồn → chuyển toàn bộ thành viên
 (giữ nguyên vai trò, người có mặt ở nhiều lớp chỉ đăng ký một lần) → xóa lớp nguồn.
 
@@ -508,9 +515,28 @@ Luồng xử lý: tạo lớp mới → sao chép tên các section của lớp 
 | `deleteSources` | `true` | Xóa lớp nguồn sau khi gộp |
 | `confirm` | `false` | Bắt buộc `true` khi `deleteSources=true` |
 
-Giới hạn quan trọng: web service chỉ chuyển được **thành viên**. Nội dung, bài tập, bài nộp và
-điểm của lớp nguồn không chuyển sang lớp mới và sẽ mất khi xóa lớp nguồn. Nếu còn thành viên
-đăng ký lỗi, service **tự động không xóa** lớp nguồn và trả về HTTP 207 kèm cảnh báo.
+**2. Chuyển vào lớp có sẵn (gửi `targetCourseId`)**
+Dùng khi muốn **giữ nguyên một lớp đã có nội dung/bài giảng**, chỉ chuyển thành viên của các
+lớp khác sang lớp đó rồi xóa các lớp đó — lớp đích không bị đụng tới, không mất bài giảng.
+Luồng xử lý: sao chép tên section còn thiếu vào lớp đích → chuyển thành viên của `sourceCourseIds`
+chưa có trong lớp đích sang đó → xóa `sourceCourseIds`.
+
+| Tham số | Mặc định | Ý nghĩa |
+|---|---|---|
+| `targetCourseId` | *(bắt buộc để dùng chế độ này)* | Course id lớp **giữ lại**, không được nằm trong `sourceCourseIds` |
+| `sourceCourseIds` | *(bắt buộc)* | Mảng/chuỗi course id các lớp sẽ bị xóa, tối thiểu 1 lớp |
+| `copySections` | `true` | Tạo thêm section mà lớp đích chưa có (bỏ qua tên đã tồn tại) |
+| `deleteSources` | `true` | Xóa các lớp nguồn sau khi gộp |
+| `confirm` | `false` | Bắt buộc `true` khi `deleteSources=true` |
+
+Giao diện: trong thanh chọn lớp, bấm ☆ trên một chip để đánh dấu lớp đó là **lớp giữ lại**
+(chip chuyển thành ★, màu khác) — bấm lại để bỏ đánh dấu và quay về chế độ "tạo lớp mới".
+
+Giới hạn quan trọng (cả 2 chế độ): web service chỉ chuyển được **thành viên**. Nội dung, bài
+tập, bài nộp và điểm của lớp nguồn không tự chuyển sang được và sẽ mất khi xóa lớp nguồn — muốn
+giữ bài giảng thì vào Moodle, ở lớp nguồn dùng **Course reuse → Import** sang lớp đích trước khi
+gộp (và set `deleteSources=false` trong lúc làm để chưa mất lớp nguồn). Nếu còn thành viên đăng
+ký lỗi, service **tự động không xóa** lớp nguồn và trả về HTTP 207 kèm cảnh báo.
 
 ## Cấu trúc mã nguồn
 

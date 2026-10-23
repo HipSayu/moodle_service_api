@@ -739,6 +739,21 @@
         );
       }
 
+      // Đăng ký sinh viên vào lớp: vẫn cần học kỳ, nhưng nhận nhiều mã
+      // một lúc (cách nhau dấu phẩy), giống sync sinh viên theo mã
+      if (btn.dataset.path === "/api/enrollments/students") {
+        const tenDotEnroll = requireTenDot();
+        if (!tenDotEnroll) return;
+
+        const so = value.split(",").filter((v) => v.trim()).length;
+        return runSync(
+          btn,
+          `${name} — ${so > 1 ? `${so} mã` : value}`,
+          `${btn.dataset.path}/${encodeURIComponent(value)}`,
+          { tenDot: tenDotEnroll }
+        );
+      }
+
       // Theo lớp học danh nghĩa: cũng tra thẳng hồ sơ nên không cần học kỳ,
       // tự động lấy hết sinh viên đang học trong lớp
       if (btn.dataset.path === "/api/sync/students/by-class") {
@@ -1212,6 +1227,10 @@
 
   const mergeLog = createResultLog("#mergeResult");
 
+  // Lớp được chọn làm "lớp giữ lại" (nhận thành viên, không bị xóa).
+  // null = chế độ cũ: tạo lớp mới rồi chuyển mọi lớp đã chọn vào đó.
+  let mergeTargetId = null;
+
   function selectedCourses() {
     return moodleTable.getSelected();
   }
@@ -1219,23 +1238,42 @@
   function updateMergeBar(selected) {
     if (moodleView !== "courses") return;
 
+    // Lớp đích bị bỏ chọn khỏi danh sách thì reset, khỏi gộp nhầm
+    if (mergeTargetId && !selected.some((c) => Number(c.id) === mergeTargetId)) {
+      mergeTargetId = null;
+    }
+
     const n = selected.length;
 
     $("#mergeCount").textContent = n
       ? `Đã chọn ${n} lớp — luôn hiện ở đầu bảng dù đang lọc`
       : "Chưa chọn lớp nào";
 
-    // Thẻ có nút ✕ để bỏ từng lớp, khỏi phải đi tìm lại dòng đó trong bảng
+    // Thẻ có nút ☆/★ để chọn làm lớp giữ lại, và nút ✕ để bỏ chọn lớp đó
     $("#mergeList").innerHTML = selected
-      .map(
-        (c) =>
-          `<span class="chip" title="${esc(c.fullname)}">${esc(c.shortname)}` +
+      .map((c) => {
+        const isTarget = Number(c.id) === mergeTargetId;
+        return (
+          `<span class="chip${isTarget ? " is-target" : ""}" title="${esc(c.fullname)}">` +
+          `<button type="button" data-pick-target="${esc(c.id)}" title="${
+            isTarget ? "Đang là lớp giữ lại" : "Chọn làm lớp giữ lại"
+          }">${isTarget ? "★" : "☆"}</button>` +
+          `${esc(c.shortname)}` +
           `<button type="button" data-unpick="${esc(c.id)}" title="Bỏ chọn lớp này">✕</button></span>`
-      )
+        );
+      })
       .join("");
 
     $$("#mergeList [data-unpick]").forEach((btn) =>
       btn.addEventListener("click", () => moodleTable.deselect(btn.dataset.unpick))
+    );
+
+    $$("#mergeList [data-pick-target]").forEach((btn) =>
+      btn.addEventListener("click", () => {
+        const id = Number(btn.dataset.pickTarget);
+        mergeTargetId = mergeTargetId === id ? null : id;
+        updateMergeBar(selectedCourses());
+      })
     );
 
     $("#mergeOpen").disabled = n < 2;
@@ -1274,18 +1312,26 @@
       .map(([label, count]) => `${label}: ${count}`)
       .join(" · ");
 
+    const summary =
+      data.mode === "existing"
+        ? `Lớp đích sẽ có thêm <strong>${data.members.newMembers}</strong> thành viên mới` +
+          (data.members.alreadyInTarget
+            ? ` (${data.members.alreadyInTarget} người đã có sẵn trong lớp đích, bỏ qua)`
+            : "") +
+          (byRole ? ` — ${esc(byRole)}` : "")
+        : `Lớp mới sẽ có <strong>${data.members.unique}</strong> thành viên` +
+          (data.members.duplicated
+            ? ` (${data.members.duplicated} lượt trùng đã được hợp nhất)`
+            : "") +
+          (byRole ? ` — ${esc(byRole)}` : "");
+
     $("#mergePreview").innerHTML =
-      miniTable(rows, 20) +
-      `<p class="hint" style="margin-top:10px">Lớp mới sẽ có <strong>${data.members.unique}</strong> thành viên` +
-      (data.members.duplicated
-        ? ` (${data.members.duplicated} lượt trùng đã được hợp nhất)`
-        : "") +
-      (byRole ? ` — ${esc(byRole)}` : "") +
-      "</p>";
+      miniTable(rows, 20) + `<p class="hint" style="margin-top:10px">${summary}</p>`;
   }
 
   $("#mergeClear").addEventListener("click", () => {
     moodleTable.clearSelection();
+    mergeTargetId = null;
     closeMergeForm();
   });
 
@@ -1299,9 +1345,16 @@
     btn.classList.add("is-busy");
 
     try {
-      const { body } = await postJSON("/api/moodle/courses/merge/preview", {
-        sourceCourseIds: selected.map((c) => c.id),
-      });
+      const payload = mergeTargetId
+        ? {
+            sourceCourseIds: selected
+              .filter((c) => Number(c.id) !== mergeTargetId)
+              .map((c) => c.id),
+            targetCourseId: mergeTargetId,
+          }
+        : { sourceCourseIds: selected.map((c) => c.id) };
+
+      const { body } = await postJSON("/api/moodle/courses/merge/preview", payload);
 
       if (!body?.success) {
         return toast(body?.message || "Không xem trước được", "err");
@@ -1310,14 +1363,27 @@
       const data = body.data;
       renderMergePreview(data);
 
-      $("#mergeFullname").value = data.suggestion.fullname;
-      $("#mergeShortname").value = data.suggestion.shortname;
-      $("#mergeIdnumber").value = data.suggestion.idnumber || "";
-      fillCategorySelect(data.suggestion.categoryid);
+      const isExisting = data.mode === "existing";
+      $("#mergeFormTitle").textContent = isExisting
+        ? "Chuyển vào lớp có sẵn"
+        : "Gộp lớp thành một lớp mới";
+      $("#mergeFields").hidden = isExisting;
+      $("#mergeTargetInfo").hidden = !isExisting;
+
+      if (isExisting) {
+        $("#mergeTargetInfo").innerHTML =
+          `Giữ lại lớp <strong>${esc(data.target.shortname)}</strong> — ${esc(data.target.fullname)}. ` +
+          `Các lớp còn lại sẽ bị <strong>XÓA</strong> sau khi chuyển xong thành viên.`;
+      } else {
+        $("#mergeFullname").value = data.suggestion.fullname;
+        $("#mergeShortname").value = data.suggestion.shortname;
+        $("#mergeIdnumber").value = data.suggestion.idnumber || "";
+        fillCategorySelect(data.suggestion.categoryid);
+      }
 
       mergeLog.reset();
       $("#mergeForm").hidden = false;
-      $("#mergeFullname").focus();
+      (isExisting ? $("#mergeRun") : $("#mergeFullname")).focus();
     } catch (err) {
       toast("Không gọi được service", "err");
     } finally {
@@ -1329,52 +1395,73 @@
     const selected = selectedCourses();
     if (selected.length < 2) return toast("Chọn ít nhất 2 lớp để gộp", "err");
 
-    const fullname = $("#mergeFullname").value.trim();
-    const shortname = $("#mergeShortname").value.trim();
+    const target = mergeTargetId
+      ? selected.find((c) => Number(c.id) === mergeTargetId)
+      : null;
+    const sources = target
+      ? selected.filter((c) => Number(c.id) !== mergeTargetId)
+      : selected;
 
-    if (!fullname) {
-      toast("Nhập tên lớp mới", "err");
-      return $("#mergeFullname").focus();
-    }
-    if (!shortname) {
-      toast("Nhập mã lớp mới", "err");
-      return $("#mergeShortname").focus();
+    let fullname = "";
+    let shortname = "";
+
+    if (!target) {
+      fullname = $("#mergeFullname").value.trim();
+      shortname = $("#mergeShortname").value.trim();
+
+      if (!fullname) {
+        toast("Nhập tên lớp mới", "err");
+        return $("#mergeFullname").focus();
+      }
+      if (!shortname) {
+        toast("Nhập mã lớp mới", "err");
+        return $("#mergeShortname").focus();
+      }
     }
 
     const deleteSources = $("#mergeDeleteSources").checked;
-    const names = selected.map((c) => c.shortname).join("\n  • ");
+    const names = sources.map((c) => c.shortname).join("\n  • ");
 
     const warning = deleteSources
       ? `\n\nCÁC LỚP NGUỒN SẼ BỊ XÓA cùng toàn bộ nội dung, bài nộp và điểm. Thao tác này KHÔNG hoàn tác được.`
       : "\n\nLớp nguồn được giữ nguyên.";
 
-    if (
-      !confirm(
-        `Gộp ${selected.length} lớp:\n  • ${names}\n\nthành lớp mới "${shortname}" — ${fullname}${warning}`
-      )
-    ) {
-      return;
-    }
+    const confirmMsg = target
+      ? `Chuyển thành viên từ ${sources.length} lớp:\n  • ${names}\n\nsang lớp có sẵn "${target.shortname}" — ${target.fullname}${warning}`
+      : `Gộp ${selected.length} lớp:\n  • ${names}\n\nthành lớp mới "${shortname}" — ${fullname}${warning}`;
+
+    if (!confirm(confirmMsg)) return;
+
+    const payload = target
+      ? {
+          sourceCourseIds: sources.map((c) => c.id),
+          targetCourseId: mergeTargetId,
+          copySections: $("#mergeCopySections").checked,
+          deleteSources,
+          confirm: true,
+        }
+      : {
+          sourceCourseIds: selected.map((c) => c.id),
+          fullname,
+          shortname,
+          idnumber: $("#mergeIdnumber").value.trim(),
+          categoryid: $("#mergeCategory").value,
+          copySections: $("#mergeCopySections").checked,
+          deleteSources,
+          confirm: true,
+        };
 
     const res = await runSync(
       $("#mergeRun"),
-      `Gộp lớp → ${shortname}`,
+      target ? `Chuyển vào lớp → ${target.shortname}` : `Gộp lớp → ${shortname}`,
       "/api/moodle/courses/merge",
-      {
-        sourceCourseIds: selected.map((c) => c.id),
-        fullname,
-        shortname,
-        idnumber: $("#mergeIdnumber").value.trim(),
-        categoryid: $("#mergeCategory").value,
-        copySections: $("#mergeCopySections").checked,
-        deleteSources,
-        confirm: true,
-      },
+      payload,
       mergeLog
     );
 
     // Gộp xong thì danh sách lớp đã đổi, tải lại để nhìn đúng hiện trạng
     if (res && res.body?.data?.targetCourse) {
+      mergeTargetId = null;
       await loadMoodleData();
     }
   });

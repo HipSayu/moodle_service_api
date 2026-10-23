@@ -540,6 +540,7 @@ class DatabaseService {
     });
   }
 
+  // maSinhVien nhận 1 mã, nhiều mã phân tách bởi dấu phẩy, hoặc mảng mã.
   async getStudentEnrollments({
     tenDot,
     maSinhVien = null,
@@ -547,11 +548,39 @@ class DatabaseService {
     idKhoaHoc = null,
   } = {}) {
     if (maSinhVien) {
+      const codes = [...new Set(
+        (Array.isArray(maSinhVien) ? maSinhVien : String(maSinhVien).split(","))
+          .map((code) => String(code ?? "").trim())
+          .filter(Boolean)
+      )];
+
+      if (codes.length === 0) {
+        throw new AppError("Thiếu mã sinh viên");
+      }
+
+      if (codes.length > DatabaseService.MAX_STUDENT_CODES) {
+        throw new AppError(
+          `Tối đa ${DatabaseService.MAX_STUDENT_CODES} mã sinh viên một lần, đang gửi ${codes.length}`
+        );
+      }
+
+      // Nhiều mã thì chỉ tra theo MaSinhVien, không dò email (IN danh sách email dễ nhầm)
+      if (codes.length > 1) {
+        return this.queryDatasetAll("student-enrollments", {
+          tenDot,
+          idKhoaHoc,
+          filters: this.buildFilters({
+            MaSinhVien: { value: codes.join(","), op: "in" },
+            MaLopHocPhan: { value: maLopHocPhan },
+          }),
+        });
+      }
+
       const byCode = await this.queryDatasetAll("student-enrollments", {
         tenDot,
         idKhoaHoc,
         filters: this.buildFilters({
-          MaSinhVien: { value: maSinhVien },
+          MaSinhVien: { value: codes[0] },
           MaLopHocPhan: { value: maLopHocPhan },
         }),
       });
@@ -561,7 +590,7 @@ class DatabaseService {
         tenDot,
         idKhoaHoc,
         filters: this.buildFilters({
-          Email: { value: maSinhVien },
+          Email: { value: codes[0] },
           MaLopHocPhan: { value: maLopHocPhan },
         }),
       });

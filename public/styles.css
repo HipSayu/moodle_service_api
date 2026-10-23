@@ -455,6 +455,15 @@ tbody tr.is-selected { background: #eef4fb; }
   cursor: pointer;
 }
 .chip button:hover { background: #d8e6f5; color: var(--err); }
+.chip button[data-pick-target]:hover { color: var(--primary); }
+
+.chip.is-target {
+  background: var(--primary);
+  border-color: var(--primary);
+  color: #fff;
+}
+.chip.is-target button { color: #fff; }
+.chip.is-target button:hover { background: rgba(255, 255, 255, 0.25); color: #fff; }
 
 .merge-form {
   margin-top: 14px;
