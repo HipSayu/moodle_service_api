@@ -33,32 +33,40 @@ npm run smoke
 Trang quản trị tĩnh trong `public/`, Express tự phục vụ ở `/`. Không cần build,
 không phụ thuộc thư viện ngoài nên chạy được cả khi máy chủ không có internet.
 
-Ô **Học kỳ (đợt)** ở thanh trên là dropdown lấy từ `DM_Dot` (mới nhất lên đầu, ghi kèm số lớp
-và đợt nào đang mở đăng ký), áp dụng cho mọi thao tác và được nhớ lại giữa các lần mở trang.
-Mặc định chọn đợt đang hoạt động (`IsActive`).
-Ô **Khóa** ngay cạnh liệt kê các khóa có lớp trong đợt đó (kèm số lớp học phần); chọn một khóa
-thì các nút "Toàn bộ đợt" và tab Dữ liệu Core chỉ chạy trong phạm vi khóa đó, để chia đợt lớn
-thành K70 / K71... chạy lần lượt. Để trống là chạy cả đợt như trước.
+Bố cục kiểu trang quản trị: **menu trái** chia theo nghiệp vụ, **thanh trên** chọn phạm vi,
+mỗi nghiệp vụ một trang riêng với form dạng "nhãn bên trái — ô nhập bên phải — chú thích bên dưới".
+Địa chỉ trang nằm trên URL (`#/students`, `#/courses`...) nên tải lại trang hoặc gửi link vẫn mở đúng chỗ.
 
-**Tab Đồng bộ** — mỗi nghiệp vụ một thẻ, hai nút: *Toàn bộ đợt* (có hỏi xác nhận) và
-*Một đối tượng* (nhập mã). Khi chạy có bộ đếm giây, mọi nút bị khóa để tránh gọi chồng.
-Kết quả hiện ngay dưới: số liệu tổng/thành công/bỏ qua/lỗi, bảng lỗi, chi tiết từng dòng,
-đường dẫn file CSV và Excel. Các lần chạy xếp chồng, mới nhất lên trên.
+**Thanh trên.** Ô **Học kỳ** lấy từ `DM_Dot` (mới nhất lên đầu, ghi kèm số lớp và đợt đang mở
+đăng ký), mặc định đợt đang hoạt động và được nhớ giữa các lần mở trang. Ô **Khóa** liệt kê các
+khóa có lớp trong học kỳ đó; chọn một khóa thì các tác vụ theo học kỳ và trang tra cứu chỉ chạy
+trong khóa đó (chia học kỳ lớn thành K70 / K71... chạy lần lượt). Bên phải là trạng thái kết nối
+và tác vụ đang chạy kèm bộ đếm giây.
 
-**Tab Dữ liệu Core** — đọc trực tiếp từ SQL Server: sinh viên, giảng viên, lớp học phần,
-đăng ký học phần, phân công giảng dạy, điểm, khoa/bộ môn.
+| Menu | Trang | Dùng khi |
+|---|---|---|
+| | **Tổng quan** | Xem kết nối, tiến độ 6 bước của học kỳ đang chọn, lối tắt việc thường làm, hoạt động gần đây |
+| Đồng bộ dữ liệu | **Đồng bộ đầu học kỳ** | Chạy từng bước hoặc *Chạy lần lượt cả 6 bước*: Khoa/Bộ môn → Tài khoản SV → Tài khoản GV → Khóa học → Ghi danh SV → Ghi danh GV. Mỗi bước nhớ trạng thái lần chạy gần nhất theo học kỳ + khóa |
+| | **Sinh viên** | Nhập mã SV (dán nguyên cột Excel được) hoặc mã lớp danh nghĩa: tạo tài khoản, ghi danh, hoặc cả hai |
+| | **Giảng viên** | Một mã GV/email: tạo tài khoản, ghi danh, hoặc cả hai |
+| | **Lớp học phần** | Một mã lớp học phần: tạo khóa học + ghi danh SV, GV (hoặc chỉ tạo khóa học) |
+| Quản lý Moodle | **Khóa học & gộp lớp** | Tra khóa học, mở thành viên từng lớp, gộp lớp (xem mục *Gộp lớp*) |
+| | **Thành viên lớp** | Ai đang có trong một khóa học, lọc theo vai trò |
+| | **Người dùng** | Tra tài khoản Moodle theo idnumber, email, username, `auth=manual`... |
+| | **Dọn ghi danh nhầm cơ sở** | Xem trước rồi mới gỡ thật |
+| Dữ liệu & báo cáo | **Tra cứu dữ liệu nguồn** | Đọc SQL Server với bộ lọc theo trường (trường + toán tử + giá trị, nối AND); danh sách trường lấy động từ `/api/data/:dataset/fields` |
+| | **Báo cáo khóa điểm** | Tải file Excel khóa điểm theo học kỳ (`/api/reports/locked-grades`) |
+| Hệ thống | **Kết nối & lịch tự động** | Kiểm tra SQL Server / Moodle, xem tài khoản token, bật/tắt/chạy ngay lịch đồng bộ tự động |
 
-Khung **Lọc theo trường** cho phép thêm bao nhiêu điều kiện tùy ý, mỗi điều kiện gồm
-trường + toán tử + giá trị (ví dụ `Điểm tổng kết` `lớn hơn hoặc bằng` `8`). Danh sách trường
-và toán tử lấy động từ `/api/data/:dataset/fields`, nên thêm cột mới ở backend là giao diện
-tự có ngay, không phải sửa gì. Kèm theo là chọn cột sắp xếp, chiều sắp xếp và số dòng tối đa.
-
-**Tab Dữ liệu Moodle** — ba khung nhìn:
-- *Khóa học*: toàn bộ khóa học, xem `shortname` để đối chiếu với `<MaLopHocPhan>_<TenDot>`
-- *Người dùng*: tìm theo tiêu chí Moodle (`auth`, `idnumber`, `email`, `username`…), mặc định `auth=manual` là các tài khoản do service tạo
-- *Thành viên lớp*: nhập Moodle course ID rồi lọc theo vai trò — Moodle không phân loại sinh viên/giảng viên ở cấp hệ thống mà theo vai trò trong từng khóa học
-
-Mọi bảng đều có ô lọc, phân trang 50 dòng và nút **Tải CSV** (xuất đúng phần đang lọc, kèm BOM để Excel đọc đúng tiếng Việt).
+Quy ước chung:
+- Kết quả hiện ngay dưới form của từng trang: tổng / thành công / bỏ qua / lỗi, bảng lỗi, chi tiết
+  từng dòng, đường dẫn file CSV/Excel trên máy chủ. Lần chạy mới nhất nằm trên cùng.
+- Chỉ một tác vụ ghi chạy tại một thời điểm; trong lúc chạy các nút ghi khác tạm khóa và trình
+  duyệt hỏi lại nếu đóng trang.
+- Thao tác chạy cả học kỳ hoặc không hoàn tác được (gộp lớp xóa lớp nguồn, gỡ ghi danh) luôn có hộp
+  xác nhận; nút xác nhận của thao tác xóa có màu đỏ, nút Hủy được chọn sẵn.
+- Mọi bảng có ô lọc, sắp xếp theo cột, phân trang 50 dòng và **Tải CSV** (đúng phần đang lọc, kèm BOM).
+- Lịch sử hoạt động và trạng thái các bước lưu trong trình duyệt (localStorage), không gửi về máy chủ.
 
 ## Theo dõi khi đang chạy
 
@@ -496,9 +504,12 @@ curl -X POST localhost:3000/api/moodle/courses/merge -H 'Content-Type: applicati
 
 ### Gộp lớp
 
-Giao diện: tab **Dữ liệu Moodle → Khóa học**, lọc theo tên/mã lớp (không cần gõ dấu),
-danh mục, trạng thái hiện-ẩn; tích chọn từ 2 lớp trở lên rồi bấm **Gộp lớp đã chọn**.
-Lựa chọn được giữ nguyên khi đổi bộ lọc hoặc sang trang khác.
+Giao diện: menu **Quản lý Moodle → Khóa học & gộp lớp**, lọc theo tên/mã lớp (không cần gõ dấu),
+danh mục, trạng thái hiện-ẩn; tích chọn từ 2 lớp trở lên thì khung **Gộp lớp** hiện ra bên dưới.
+Lựa chọn được giữ nguyên khi đổi bộ lọc hoặc sang trang khác. Các bước trong khung:
+chọn **Cách gộp** → chọn **Lớp giữ lại** (hoặc nhập tên/mã lớp mới) → **1. Xem trước** →
+**2. Thực hiện gộp**. Nút thực hiện chỉ bấm được sau khi xem trước, và bị khóa lại nếu đổi
+lớp đã chọn hoặc cách gộp. Mỗi lớp đã chọn có nhãn *giữ lại* / *sẽ xóa* để nhìn là biết.
 
 Có 2 chế độ, chọn bằng việc có gửi `targetCourseId` hay không:
 
@@ -529,8 +540,7 @@ chưa có trong lớp đích sang đó → xóa `sourceCourseIds`.
 | `deleteSources` | `true` | Xóa các lớp nguồn sau khi gộp |
 | `confirm` | `false` | Bắt buộc `true` khi `deleteSources=true` |
 
-Giao diện: trong thanh chọn lớp, bấm ☆ trên một chip để đánh dấu lớp đó là **lớp giữ lại**
-(chip chuyển thành ★, màu khác) — bấm lại để bỏ đánh dấu và quay về chế độ "tạo lớp mới".
+Giao diện: chế độ **Chuyển vào một lớp có sẵn** là mặc định; chọn lớp ở ô **Lớp giữ lại**.
 
 Giới hạn quan trọng (cả 2 chế độ): web service chỉ chuyển được **thành viên**. Nội dung, bài
 tập, bài nộp và điểm của lớp nguồn không tự chuyển sang được và sẽ mất khi xóa lớp nguồn — muốn
