@@ -488,3 +488,34 @@ FROM dbo.DT_SinhVien AS sv WITH (NOLOCK)
 WHERE ISNULL(sv.IsDelete, 0) = 0
   AND sv.IDKhoaHoc = 63;
 GO
+
+
+/* ---------------------------------------------------------------------------
+   QUERY 6 — TOÀN BỘ SINH VIÊN NHẬP HỌC ĐỢT VỪA RỒI (Khóa 71 - 2026)
+
+   KHÔNG auto-detect "khóa mới nhất" theo Nam DESC: DM_KhoaHoc có nhiều khóa
+   cùng Nam=2026 (vd 'Khóa 71 (2026)' id 63 với 5498 SV, và '2026-04' id 67
+   chỉ 90 SV - batch tuyển sinh bổ sung), ORDER BY Nam DESC không có tiebreaker
+   nên có lúc ra nhầm batch nhỏ. Lọc thẳng theo tên khóa cho chắc.
+--------------------------------------------------------------------------- */
+DECLARE @IDKhoaMoiNhat INT = (
+    SELECT TOP (1) Id FROM dbo.DM_KhoaHoc WHERE TenKhoaHoc = N'Khóa 71 (2026)' AND ISNULL(IsDelete, 0) = 0
+);
+
+SELECT
+    sv.MaSinhVien,
+    LTRIM(RTRIM(sv.HoDem + N' ' + sv.Ten)) AS HoTen,
+    sv.Email,
+    sv.SoDienThoai,
+    lop.MaLopChu                          AS MaLop,
+    ng.TenNganh,
+    kh.TenKhoaHoc                         AS Khoa,
+    sv.NgayNhapHoc
+FROM dbo.DT_SinhVien AS sv WITH (NOLOCK)
+INNER JOIN dbo.DM_KhoaHoc AS kh WITH (NOLOCK) ON kh.Id = sv.IDKhoaHoc
+LEFT JOIN dbo.DM_LopHoc AS lop WITH (NOLOCK)  ON lop.Id = sv.IDLopHoc
+LEFT JOIN dbo.DM_Nganh AS ng WITH (NOLOCK)    ON ng.Id = sv.IDNganh
+WHERE sv.IDKhoaHoc = @IDKhoaMoiNhat
+  AND ISNULL(sv.IsDelete, 0) = 0
+ORDER BY lop.MaLopChu, sv.MaSinhVien;
+GO

@@ -20,7 +20,17 @@ cp .env.example .env    # rồi điền thông tin kết nối
 npm start               # hoặc npm run dev
 ```
 
-Mở **http://localhost:3000** để dùng giao diện, hoặc gọi thẳng API ở `/api/*`.
+Mở **http://localhost:4207** để dùng giao diện, hoặc gọi thẳng API ở `/api/*`.
+
+Chạy trên máy chủ bằng Docker (cổng 4207):
+
+```bash
+cp .env.example .env     # điền SQL Server, Moodle token...
+mkdir -p logs && sudo chown -R 1000:1000 logs
+docker compose up -d --build
+```
+
+Hướng dẫn đầy đủ (nginx + đăng nhập, mở firewall, cập nhật, xử lý sự cố): **[DEPLOY.md](DEPLOY.md)**.
 
 Kiểm tra nhanh không cần DB/Moodle:
 
@@ -46,6 +56,7 @@ và tác vụ đang chạy kèm bộ đếm giây.
 | Menu | Trang | Dùng khi |
 |---|---|---|
 | | **Tổng quan** | Xem kết nối, tiến độ 6 bước của học kỳ đang chọn, lối tắt việc thường làm, hoạt động gần đây |
+| | **Lịch sử chạy** | Mọi lần chạy tác vụ lưu trong MongoDB: lọc theo loại, kết quả, ngày, người chạy; mở từng lần để xem tham số, lỗi, chi tiết từng dòng, tải CSV |
 | Đồng bộ dữ liệu | **Đồng bộ đầu học kỳ** | Chạy từng bước hoặc *Chạy lần lượt cả 6 bước*: Khoa/Bộ môn → Tài khoản SV → Tài khoản GV → Khóa học → Ghi danh SV → Ghi danh GV. Mỗi bước nhớ trạng thái lần chạy gần nhất theo học kỳ + khóa |
 | | **Sinh viên** | Nhập mã SV (dán nguyên cột Excel được) hoặc mã lớp danh nghĩa: tạo tài khoản, ghi danh, hoặc cả hai |
 | | **Giảng viên** | Một mã GV/email: tạo tài khoản, ghi danh, hoặc cả hai |
@@ -60,13 +71,32 @@ và tác vụ đang chạy kèm bộ đếm giây.
 
 Quy ước chung:
 - Kết quả hiện ngay dưới form của từng trang: tổng / thành công / bỏ qua / lỗi, bảng lỗi, chi tiết
-  từng dòng, đường dẫn file CSV/Excel trên máy chủ. Lần chạy mới nhất nằm trên cùng.
+  từng dòng, kèm liên kết **Xem chi tiết trong lịch sử**. Lần chạy mới nhất nằm trên cùng.
 - Chỉ một tác vụ ghi chạy tại một thời điểm; trong lúc chạy các nút ghi khác tạm khóa và trình
   duyệt hỏi lại nếu đóng trang.
 - Thao tác chạy cả học kỳ hoặc không hoàn tác được (gộp lớp xóa lớp nguồn, gỡ ghi danh) luôn có hộp
   xác nhận; nút xác nhận của thao tác xóa có màu đỏ, nút Hủy được chọn sẵn.
 - Mọi bảng có ô lọc, sắp xếp theo cột, phân trang 50 dòng và **Tải CSV** (đúng phần đang lọc, kèm BOM).
-- Lịch sử hoạt động và trạng thái các bước lưu trong trình duyệt (localStorage), không gửi về máy chủ.
+- Trạng thái 6 bước đầu học kỳ lưu trong trình duyệt (localStorage). Lịch sử chạy lưu trong MongoDB.
+
+### Lịch sử chạy (MongoDB)
+
+Cấu hình `MONGODB_URI`, `MONGODB_DB` trong `.env`. Mỗi request làm thay đổi dữ liệu (`POST`/`DELETE`
+dưới `/api`, trừ xem trước gộp lớp) và mỗi lần tạo báo cáo được lưu thành một lần chạy; job đồng bộ
+tự động cũng vậy. Hai collection:
+
+| Collection | Nội dung |
+|---|---|
+| `runs` | Tên tác vụ, loại, nguồn (giao diện / gọi API / lịch tự động), người chạy (tài khoản đăng nhập nginx), IP, trình duyệt, đường dẫn API, tham số gửi lên, phạm vi (học kỳ, khóa), thời điểm bắt đầu/kết thúc, thời lượng, kết quả, số liệu tổng hợp, lỗi, cảnh báo, từng bước |
+| `run_details` | Từng dòng chi tiết (từng sinh viên, giảng viên, lớp...) với `runId`, thứ tự, bước, trạng thái, mã, họ tên, lớp, lỗi và toàn bộ dữ liệu dòng |
+
+API đọc: `GET /api/history/runs` (lọc `category`, `status`, `from`, `to`, `q`, phân trang `page`, `limit`),
+`GET /api/history/runs/:id`, `GET /api/history/runs/:id/details` (lọc `status`, `kind`, `q`),
+`GET /api/history/runs/:id/export` (CSV). Mỗi response của tác vụ ghi có header `X-Run-Id`.
+
+MongoDB chỉ để lưu vết: không kết nối được thì service vẫn đồng bộ bình thường, chỉ không lưu lịch sử,
+và tự thử kết nối lại mỗi phút. Kết quả không còn ghi ra file CSV/Excel trong `logs/`; đặt
+`EXPORT_FILES=true` nếu vẫn muốn có file.
 
 ## Theo dõi khi đang chạy
 
@@ -203,11 +233,11 @@ em chưa đăng ký học phần nào, hoặc không biết em đó thuộc đ�
 Nhận một mã hoặc nhiều mã cách nhau dấu phẩy, tối đa 200 mã một lần:
 
 ```bash
-curl -X POST localhost:3000/api/sync/students/by-code -H 'Content-Type: application/json' \
+curl -X POST localhost:4207/api/sync/students/by-code -H 'Content-Type: application/json' \
   -d '{"maSinhVien":"1083471, 1083472"}'
 
 # Một em thì gọi thẳng trên URL, cũng không cần tenDot
-curl -X POST localhost:3000/api/sync/students/1083471
+curl -X POST localhost:4207/api/sync/students/1083471
 ```
 
 Mã nào không có hồ sơ được trả về trong `data.khongTimThay` và nhắc luôn trong `message`,
@@ -219,15 +249,15 @@ nên gửi nhầm mã là biết ngay. Trên giao diện: ô **Mã SV** ở th�
 Nhận một mã lớp hoặc nhiều mã cách nhau dấu phẩy, tối đa 50 lớp một lần:
 
 ```bash
-curl -X POST localhost:3000/api/sync/students/by-class -H 'Content-Type: application/json' \
+curl -X POST localhost:4207/api/sync/students/by-class -H 'Content-Type: application/json' \
   -d '{"maLop":"70CS2"}'
 
 # Nhiều lớp cùng lúc
-curl -X POST localhost:3000/api/sync/students/by-class -H 'Content-Type: application/json' \
+curl -X POST localhost:4207/api/sync/students/by-class -H 'Content-Type: application/json' \
   -d '{"maLop":"70CS2,70CS3"}'
 
 # Một lớp thì gọi thẳng trên URL
-curl -X POST localhost:3000/api/sync/students/by-class/70CS2
+curl -X POST localhost:4207/api/sync/students/by-class/70CS2
 ```
 
 Truyền `chiDangHoc=false` để lấy cả sinh viên đã nghỉ/thôi học (mặc định chỉ lấy
@@ -240,7 +270,7 @@ gần như chưa em nào được tạo tài khoản. Thêm `toanKhoa=true` đ�
 (`DT_SinhVien.IDKhoaHoc`), gồm cả em chưa đăng ký môn nào:
 
 ```bash
-curl -X POST localhost:3000/api/sync/students -H 'Content-Type: application/json' \
+curl -X POST localhost:4207/api/sync/students -H 'Content-Type: application/json' \
   -d '{"tenDot":"HK1 2026-2027","khoaHoc":"71","toanKhoa":true}'
 ```
 
@@ -261,11 +291,11 @@ nhận thẳng `maLopHocPhan` và `tenDot` (học kỳ), bỏ qua bước chọn
 tiện khi chỉ biết mã lớp học phần và học kỳ, ví dụ từ thời khóa biểu:
 
 ```bash
-curl -X POST localhost:3000/api/sync/courses/by-code -H 'Content-Type: application/json' \
+curl -X POST localhost:4207/api/sync/courses/by-code -H 'Content-Type: application/json' \
   -d '{"maLopHocPhan":"417688","tenDot":"HK1 2026-2027"}'
 
 # Mã lớp học phần cũng gọi thẳng trên URL, tenDot vẫn truyền trong body
-curl -X POST localhost:3000/api/sync/courses/by-code/417688 -H 'Content-Type: application/json' \
+curl -X POST localhost:4207/api/sync/courses/by-code/417688 -H 'Content-Type: application/json' \
   -d '{"tenDot":"HK1 2026-2027"}'
 ```
 
@@ -278,11 +308,11 @@ viên.** `/api/sync/courses/full` gộp 3 bước (tạo khóa học, ghi danh s
 giảng viên) làm một, chỉ cần `maLopHocPhan` + `tenDot`, không cần chọn khóa:
 
 ```bash
-curl -X POST localhost:3000/api/sync/courses/full -H 'Content-Type: application/json' \
+curl -X POST localhost:4207/api/sync/courses/full -H 'Content-Type: application/json' \
   -d '{"maLopHocPhan":"417688","tenDot":"HK1 2026-2027"}'
 
 # Mã lớp học phần cũng gọi thẳng trên URL, tenDot vẫn truyền trong body
-curl -X POST localhost:3000/api/sync/courses/full/417688 -H 'Content-Type: application/json' \
+curl -X POST localhost:4207/api/sync/courses/full/417688 -H 'Content-Type: application/json' \
   -d '{"tenDot":"HK1 2026-2027"}'
 ```
 
@@ -318,13 +348,13 @@ khỏi lọc nhầm người thuộc khóa khác.
 
 ```bash
 # Xem đợt có những khóa nào, kèm số lớp học phần
-curl -G localhost:3000/api/data/cohorts --data-urlencode 'tenDot=HK1 2025-2026'
+curl -G localhost:4207/api/data/cohorts --data-urlencode 'tenDot=HK1 2025-2026'
 
 # Đồng bộ lần lượt từng khóa
-curl -X POST localhost:3000/api/sync/students -H 'Content-Type: application/json' \
+curl -X POST localhost:4207/api/sync/students -H 'Content-Type: application/json' \
   -d '{"tenDot":"HK1 2025-2026","khoaHoc":"70"}'
 
-curl -X POST localhost:3000/api/sync/courses -H 'Content-Type: application/json' \
+curl -X POST localhost:4207/api/sync/courses -H 'Content-Type: application/json' \
   -d '{"tenDot":"HK1 2025-2026","idKhoaHoc":47}'
 
 # Cả đợt như trước: bỏ trống khoaHoc/idKhoaHoc
@@ -419,20 +449,20 @@ trước khi chạm tới SQL.
 
 ```bash
 # Sinh viên có email HUCE, sắp xếp theo mã giảm dần
-curl -G localhost:3000/api/data/students \
+curl -G localhost:4207/api/data/students \
   --data-urlencode 'tenDot=HK1 2026-2027' \
   --data-urlencode 'Email__endswith=@huce.edu.vn' \
   --data-urlencode 'sort=MaSinhVien' --data-urlencode 'order=desc'
 
 # Điểm từ 8 đến 9 của các lớp 67
-curl -G localhost:3000/api/data/grades \
+curl -G localhost:4207/api/data/grades \
   --data-urlencode 'tenDot=HK1 2026-2027' \
   --data-urlencode 'DiemTongKet__gte=8' \
   --data-urlencode 'DiemTongKet__lte=9' \
   --data-urlencode 'TenLopHoc__startswith=67'
 
 # Lớp học phần chưa gán bộ môn
-curl -G localhost:3000/api/data/courses \
+curl -G localhost:4207/api/data/courses \
   --data-urlencode 'tenDot=HK1 2026-2027' \
   --data-urlencode 'IDToBoMon__isnull='
 ```
@@ -476,29 +506,29 @@ File Excel lưu trong `logs/reports/`.
 
 ```bash
 # Thứ tự chuẩn cho một học kỳ mới
-curl -X POST localhost:3000/api/sync/categories
-curl -X POST localhost:3000/api/sync/students  -H 'Content-Type: application/json' -d '{"tenDot":"HK1 2026-2027"}'
-curl -X POST localhost:3000/api/sync/teachers  -H 'Content-Type: application/json' -d '{"tenDot":"HK1 2026-2027"}'
-curl -X POST localhost:3000/api/sync/courses   -H 'Content-Type: application/json' -d '{"tenDot":"HK1 2026-2027"}'
-curl -X POST localhost:3000/api/enrollments/students -H 'Content-Type: application/json' -d '{"tenDot":"HK1 2026-2027"}'
-curl -X POST localhost:3000/api/enrollments/teachers -H 'Content-Type: application/json' -d '{"tenDot":"HK1 2026-2027"}'
+curl -X POST localhost:4207/api/sync/categories
+curl -X POST localhost:4207/api/sync/students  -H 'Content-Type: application/json' -d '{"tenDot":"HK1 2026-2027"}'
+curl -X POST localhost:4207/api/sync/teachers  -H 'Content-Type: application/json' -d '{"tenDot":"HK1 2026-2027"}'
+curl -X POST localhost:4207/api/sync/courses   -H 'Content-Type: application/json' -d '{"tenDot":"HK1 2026-2027"}'
+curl -X POST localhost:4207/api/enrollments/students -H 'Content-Type: application/json' -d '{"tenDot":"HK1 2026-2027"}'
+curl -X POST localhost:4207/api/enrollments/teachers -H 'Content-Type: application/json' -d '{"tenDot":"HK1 2026-2027"}'
 
 # Xử lý một trường hợp lẻ
-curl -X POST localhost:3000/api/sync/teachers/01025            -H 'Content-Type: application/json' -d '{"tenDot":"HK1 2026-2027"}'
-curl -X POST localhost:3000/api/enrollments/teachers/01025     -H 'Content-Type: application/json' -d '{"tenDot":"HK1 2026-2027"}'
+curl -X POST localhost:4207/api/sync/teachers/01025            -H 'Content-Type: application/json' -d '{"tenDot":"HK1 2026-2027"}'
+curl -X POST localhost:4207/api/enrollments/teachers/01025     -H 'Content-Type: application/json' -d '{"tenDot":"HK1 2026-2027"}'
 
 # Báo cáo
-curl -o report.xlsx 'localhost:3000/api/reports/locked-grades?idDot=298&late=true&download=true'
+curl -o report.xlsx 'localhost:4207/api/reports/locked-grades?idDot=298&late=true&download=true'
 
 # Gộp 2 lớp trên Moodle thành 1 lớp mới
-curl -X POST localhost:3000/api/moodle/courses/merge/preview -H 'Content-Type: application/json' \
+curl -X POST localhost:4207/api/moodle/courses/merge/preview -H 'Content-Type: application/json' \
   -d '{"sourceCourseIds":[901,902]}'
 
-curl -X POST localhost:3000/api/moodle/courses/merge -H 'Content-Type: application/json' \
+curl -X POST localhost:4207/api/moodle/courses/merge -H 'Content-Type: application/json' \
   -d '{"sourceCourseIds":[901,902],"fullname":"67CS1+67CS2 - Toan","shortname":"GOP_67CS_HK1","confirm":true}'
 
 # Chuyển thành viên lớp 902 sang lớp có sẵn 901 (giữ nội dung của 901), rồi xóa lớp 902
-curl -X POST localhost:3000/api/moodle/courses/merge -H 'Content-Type: application/json' \
+curl -X POST localhost:4207/api/moodle/courses/merge -H 'Content-Type: application/json' \
   -d '{"targetCourseId":901,"sourceCourseIds":[902],"confirm":true}'
 ```
 
@@ -590,7 +620,7 @@ Ngoài các function chuẩn (`core_user_*`, `core_course_*`, `enrol_manual_enro
 
 ## Còn tồn đọng
 
-- **Không có xác thực.** Bất kỳ ai truy cập được cổng 3000 đều gọi được mọi endpoint,
+- **Không có xác thực.** Bất kỳ ai truy cập được cổng 4207 đều gọi được mọi endpoint,
   kể cả `DELETE /api/moodle/quizzes`. Chỉ chạy service trong mạng nội bộ đã chặn sẵn.
 - **`MOODLE_TOKEN` và mật khẩu SQL từng bị commit vào git** ở các file `.env.example.*` cũ.
   Các file đó đã được thay bằng placeholder, nhưng lịch sử git vẫn còn — cần đổi mật khẩu

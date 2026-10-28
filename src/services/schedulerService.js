@@ -2,6 +2,7 @@ import { CronJob } from 'cron';
 import config from '../config/index.js';
 import { logger, syncLogger } from '../utils/logger.js';
 import syncToMoodleService from './syncToMoodleService.js';
+import historyService from './historyService.js';
 
 const JOB_SYNC_ALL = 'syncAllToMoodle';
 
@@ -142,9 +143,25 @@ class SchedulerService {
 
     try {
       syncLogger.info(`Chạy job đồng bộ toàn bộ (đợt ${config.sync.tenDot})`);
-      const result = await syncToMoodleService.syncAll({
-        tenDot: config.sync.tenDot
-      });
+      const tenDot = config.sync.tenDot;
+      const result = await historyService.track(
+        {
+          title: `Đồng bộ tự động toàn bộ — ${tenDot}`,
+          category: 'sync',
+          trigger: 'scheduler',
+          path: `scheduler:${JOB_SYNC_ALL}`,
+          scope: { tenDot }
+        },
+        () => syncToMoodleService.syncAll({ tenDot }),
+        (r) => ({
+          httpStatus: r.failed > 0 ? 207 : 200,
+          body: {
+            success: !(r.failed > 0),
+            message: `Đồng bộ toàn bộ hoàn tất sau ${Math.round((r.durationMs || 0) / 1000)}s, tổng lỗi ${r.failed}`,
+            data: r
+          }
+        })
+      );
       this.lastRun[JOB_SYNC_ALL] = new Date().toISOString();
       syncLogger.info('Job đồng bộ toàn bộ hoàn tất', {
         failed: result.failed,

@@ -1,5 +1,6 @@
 import { createObjectCsvWriter } from "csv-writer";
 import { syncLogger } from "./logger.js";
+import config from "../config/index.js";
 import fs from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
@@ -78,6 +79,8 @@ class CSVHelper {
   // Ghi mảng object ra CSV. Cột suy ra từ khóa của bản ghi đầu tiên.
   // subDir: thư mục con trong logs/csv (ví dụ "enrollments")
   static async saveRows(rows, fileName, subDir = "") {
+    if (!config.exportFiles) return null;
+
     try {
       if (!rows || rows.length === 0) {
         syncLogger.info(`Không có dữ liệu để ghi CSV: ${fileName}`);

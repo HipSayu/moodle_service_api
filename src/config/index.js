@@ -3,7 +3,7 @@ dotenv.config();
 
 const config = {
   // Server
-  port: process.env.PORT || 3000,
+  port: process.env.PORT || 4207,
   nodeEnv: process.env.NODE_ENV || 'development',
 
   // SQL Server
@@ -53,6 +53,17 @@ const config = {
     cronTime: process.env.SYNC_CRON_TIME || '0 0 2 * * *',
     timezone: process.env.SYNC_TIMEZONE || 'Asia/Ho_Chi_Minh'
   },
+
+  // Lịch sử chạy tác vụ (MongoDB). Bỏ trống MONGODB_URI thì không lưu lịch sử.
+  mongo: {
+    uri: process.env.MONGODB_URI || '',
+    dbName: process.env.MONGODB_DB || 'sync_lms',
+    // Số ngày giữ lịch sử, 0 = giữ mãi
+    retentionDays: parseInt(process.env.HISTORY_RETENTION_DAYS || '0', 10) || 0
+  },
+
+  // Ghi kết quả từng lần chạy ra file CSV/Excel trong logs/ (đã có lịch sử MongoDB thay thế)
+  exportFiles: process.env.EXPORT_FILES === 'true',
 
   // Logging
   logging: {

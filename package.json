@@ -13,7 +13,8 @@
     "smoke:cohort": "node tests/smoke-cohort.mjs",
     "smoke:cleanup": "node tests/smoke-cleanup.mjs",
     "smoke:bycode": "node tests/smoke-bycode.mjs",
-    "smoke": "node tests/smoke-routes.mjs && node tests/smoke-sync.mjs && node tests/smoke-ui.mjs && node tests/smoke-ui-live.mjs && node tests/smoke-merge.mjs && node tests/smoke-cohort.mjs && node tests/smoke-cleanup.mjs && node tests/smoke-bycode.mjs",
+    "smoke:history": "node tests/smoke-history.mjs",
+    "smoke": "node tests/smoke-routes.mjs && node tests/smoke-sync.mjs && node tests/smoke-ui.mjs && node tests/smoke-ui-live.mjs && node tests/smoke-merge.mjs && node tests/smoke-cohort.mjs && node tests/smoke-cleanup.mjs && node tests/smoke-bycode.mjs && node tests/smoke-history.mjs",
     "smoke:ui": "node tests/smoke-ui.mjs && node tests/smoke-ui-live.mjs"
   },
   "keywords": [
@@ -31,6 +32,7 @@
     "dotenv": "^16.3.1",
     "exceljs": "^4.4.0",
     "express": "^4.18.2",
+    "mongodb": "^7.7.0",
     "mssql": "^10.0.1",
     "winston": "^3.10.0",
     "winston-daily-rotate-file": "^4.7.1"

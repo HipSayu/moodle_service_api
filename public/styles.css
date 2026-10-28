@@ -632,6 +632,56 @@ details.sub > summary {
 details.sub > .table-wrap { margin-top: 6px; }
 .file-path { font-size: 12px; color: var(--muted); overflow-wrap: anywhere; margin: 6px 0 0; }
 
+/* ==================== lịch sử chạy ==================== */
+.muted { color: var(--muted); font-size: 12.5px; }
+.nowrap { white-space: nowrap; }
+.sub-text { font-size: 12px; color: var(--muted); margin-top: 2px; }
+.count-inline { font-size: 13px; font-weight: 400; color: var(--muted); }
+
+tr.row-link { cursor: pointer; }
+#historyTable td:nth-child(2) { min-width: 220px; }
+
+.inline-field { display: flex; align-items: center; gap: 6px; font-size: 13px; color: var(--muted); }
+input[type=date] {
+  font: inherit;
+  padding: 6px 8px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: #fff;
+  color: var(--text);
+}
+
+.result-link { font-size: 13px; text-decoration: none; margin-left: auto; }
+.result-link:hover { text-decoration: underline; }
+
+.chip-filter {
+  font: inherit;
+  font-size: 12.5px;
+  padding: 4px 11px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: #fff;
+  color: var(--text);
+  cursor: pointer;
+}
+.chip-filter b { font-weight: 600; color: var(--muted); margin-left: 3px; }
+.chip-filter:hover { background: var(--surface-2); }
+.chip-filter.is-active { background: var(--primary); border-color: var(--primary); color: #fff; }
+.chip-filter.is-active b { color: #fff; }
+
+pre.json {
+  margin: 6px 0 0;
+  padding: 10px 12px;
+  max-height: 360px;
+  overflow: auto;
+  font-size: 12px;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
 /* ==================== cặp nhãn - giá trị ==================== */
 .kv {
   display: grid;

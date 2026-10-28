@@ -4,6 +4,10 @@ import http from 'node:http';
 import databaseService from '../src/services/databaseService.js';
 import moodleService from '../src/services/moodleService.js';
 import App from '../src/app.js';
+import config from '../src/config/index.js';
+
+// Ghi file Excel mặc định tắt (đã có lịch sử MongoDB); bật lại để kiểm tra file xem trước
+config.exportFiles = true;
 
 const TEN_DOT = 'HK1 2026-2027';
 const SHARED = `MH01_${TEN_DOT}`; // khóa học dùng chung của cơ sở chính

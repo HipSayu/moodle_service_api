@@ -1,0 +1,8 @@
+# Chỉ đưa vào image những gì service cần để chạy.
+# .env (mật khẩu, token), logs, node_modules của máy dev, file SQL/CSV tra cứu đều bị loại.
+*
+!index.js
+!package.json
+!package-lock.json
+!src
+!public

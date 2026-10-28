@@ -11,6 +11,7 @@ import {
 import apiRoutes from './routes/index.js';
 import schedulerService from './services/schedulerService.js';
 import databaseService from './services/databaseService.js';
+import historyService from './services/historyService.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PUBLIC_DIR = path.join(__dirname, '../public');
@@ -56,7 +57,8 @@ class App {
       });
     });
 
-    this.app.use('/api', apiRoutes);
+    // Mỗi request ghi dữ liệu được lưu thành một lần chạy trong lịch sử (MongoDB)
+    this.app.use('/api', historyService.middleware(), apiRoutes);
 
     // 404 cho đường dẫn không tồn tại
     this.app.use((req, res) => {
@@ -99,6 +101,8 @@ class App {
     this.initializeRoutes();
 
     await this.initializeDatabase();
+    // Lịch sử không bắt buộc: lỗi kết nối MongoDB chỉ ghi log, service vẫn chạy
+    await historyService.connect();
     this.initializeScheduler();
 
     logger.info('Khởi tạo ứng dụng thành công');
@@ -135,6 +139,8 @@ class App {
     } catch (error) {
       logger.error('Đóng kết nối SQL Server lỗi:', error);
     }
+
+    await historyService.close();
 
     if (this.server) {
       this.server.close(() => {

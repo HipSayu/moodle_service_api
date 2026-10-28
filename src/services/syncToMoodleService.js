@@ -6,6 +6,7 @@ import { retryOperation } from "../utils/errorHandler.js";
 import { createProgress } from "../utils/progress.js";
 import CSVHelper from "../utils/csvHelper.js";
 import ExcelHelper from "../utils/excelHelper.js";
+import historyService from "./historyService.js";
 
 // Role id trên Moodle
 const ROLE = {
@@ -364,6 +365,7 @@ class SyncToMoodleService {
       );
     }
 
+    await historyService.recordRows(rows, { kind: "students" });
     const csvFile = await CSVHelper.saveRows(rows, "sync_students");
     const excelFile = await ExcelHelper.saveRows(rows, "sync_students", {
       meta: { "Phạm vi": scope },
@@ -470,6 +472,7 @@ class SyncToMoodleService {
     }
 
     progress.finish();
+    await historyService.recordRows(rows, { kind: "teachers" });
     const csvFile = await CSVHelper.saveRows(rows, "sync_teachers");
     const excelFile = await ExcelHelper.saveRows(rows, "sync_teachers", {
       meta: { "Phạm vi": scope },
@@ -735,6 +738,7 @@ class SyncToMoodleService {
     }
 
     progress.finish();
+    await historyService.recordRows(rows, { kind: "courses" });
     const csvFile = await CSVHelper.saveRows(rows, "sync_courses");
     const excelFile = await ExcelHelper.saveRows(rows, "sync_courses", {
       meta: { "Phạm vi": scope },
@@ -945,6 +949,8 @@ class SyncToMoodleService {
 
     progress.finish();
 
+    await historyService.recordRows(allRows, { kind: "enrollStudents" });
+
     // Excel gộp cả lần chạy vào một file, kèm sheet tổng hợp theo lớp
     const excelFile = await ExcelHelper.saveRows(allRows, "enroll_students", {
       subDir: "enrollments/students",
@@ -1125,6 +1131,7 @@ class SyncToMoodleService {
 
     progress.finish();
 
+    await historyService.recordRows(rows, { kind: "cleanupCampus" });
     const csvFile = await CSVHelper.saveRows(
       rows,
       apply ? "cleanup_campus_applied" : "cleanup_campus_preview"
@@ -1314,6 +1321,8 @@ class SyncToMoodleService {
 
     progress.finish();
 
+    await historyService.recordRows(allRows, { kind: "enrollTeachers" });
+
     // Excel gộp cả lần chạy vào một file, kèm sheet tổng hợp theo lớp
     const excelFile = await ExcelHelper.saveRows(allRows, "enroll_teachers", {
       subDir: "enrollments/teachers",
@@ -1463,6 +1472,7 @@ class SyncToMoodleService {
       }
     }
 
+    await historyService.recordRows(rows, { kind: "grades" });
     const csvFile = await CSVHelper.saveRows(rows, "sync_grades", "grades");
 
     syncLogger.info(

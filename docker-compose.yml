@@ -1,0 +1,29 @@
+# Chạy: docker compose up -d --build
+# Cấu hình lấy từ file .env cùng thư mục (xem .env.example và DEPLOY.md).
+services:
+  moodle-sync:
+    build: .
+    image: moodle-sync:latest
+    container_name: moodle-sync
+    restart: unless-stopped
+    init: true
+    env_file: .env
+    environment:
+      # Ghi đè giá trị trong .env: trong container luôn chạy production, cổng 4207
+      NODE_ENV: production
+      PORT: "4207"
+      TZ: Asia/Ho_Chi_Minh
+    ports:
+      # Mặc định chỉ mở trong máy chủ (127.0.0.1), người dùng vào qua nginx.
+      # Đặt HOST_BIND=0.0.0.0 trong .env để mở thẳng ra mạng nội bộ.
+      - "${HOST_BIND:-127.0.0.1}:${HOST_PORT:-4207}:4207"
+    volumes:
+      - ./logs:/app/logs
+    extra_hosts:
+      # Cho phép SQL_SERVER=host.docker.internal khi SQL Server cài ngay trên máy chủ này
+      - "host.docker.internal:host-gateway"
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "5"

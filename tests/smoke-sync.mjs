@@ -3,8 +3,12 @@ import fs from 'node:fs';
 import databaseService from '../src/services/databaseService.js';
 import moodleService from '../src/services/moodleService.js';
 import syncToMoodleService from '../src/services/syncToMoodleService.js';
+import config from '../src/config/index.js';
 
 const TEN_DOT = 'HK1 2026-2027';
+
+// Ghi file CSV/Excel mặc định tắt (đã lưu lịch sử MongoDB); bật lại để kiểm tra phần xuất file
+config.exportFiles = true;
 
 // ---- dữ liệu giả ----
 // 1083471 trống Email, 1083472 chỉ có khoảng trắng -> phải tự sinh email theo mã sinh viên

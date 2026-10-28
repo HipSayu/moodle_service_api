@@ -72,12 +72,12 @@ SV003,Le Van,Tung,sv003@huce.edu.vn,Hai Phong,Thành công,,2026-01-09T14:30:27.
 
 ### Request
 ```bash
-curl -X POST http://localhost:3000/api/sync/students
+curl -X POST http://localhost:4207/api/sync/students
 ```
 
 ### hoặc với Postman
 - Method: POST
-- URL: http://localhost:3000/api/sync/students
+- URL: http://localhost:4207/api/sync/students
 - Headers: Content-Type: application/json
 
 ## Lưu ý

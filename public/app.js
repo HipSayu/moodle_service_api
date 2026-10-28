@@ -111,16 +111,20 @@
 
   // ==================== gọi API ====================
 
-  // Luôn trả về { ok, status, body } kể cả khi máy chủ trả lỗi
+  // Tên tác vụ đang chạy, gửi kèm request để lịch sử lưu đúng tên hiển thị trên giao diện
+  let taskHeaders = null;
+
+  // Luôn trả về { ok, status, body, runId } kể cả khi máy chủ trả lỗi.
+  // runId: mã lần chạy trong lịch sử (MongoDB), có khi request là tác vụ ghi dữ liệu.
   async function api(path, options = {}) {
-    const res = await fetch(path, options);
+    const res = await fetch(path, { ...options, headers: { ...(options.headers || {}), ...(taskHeaders || {}) } });
     let body = null;
     try {
       body = await res.json();
     } catch {
       body = { success: false, message: `Phản hồi không phải JSON (HTTP ${res.status})` };
     }
-    return { ok: res.ok, status: res.status, body };
+    return { ok: res.ok, status: res.status, body, runId: res.headers.get("X-Run-Id") };
   }
 
   const post = (path, payload) =>
@@ -353,8 +357,60 @@
     renderActivity();
   }
 
-  function renderActivity() {
+  // ---- nhãn dùng chung cho lịch sử ----
+
+  const RUN_STATUS = {
+    success: ["ok", "Thành công"],
+    partial: ["warn", "Có lỗi một phần"],
+    failed: ["err", "Thất bại"],
+    running: ["run", "Đang chạy"],
+  };
+  const CATEGORY_LABEL = {
+    sync: "Đồng bộ",
+    enroll: "Ghi danh",
+    merge: "Gộp lớp",
+    cleanup: "Dọn ghi danh",
+    report: "Báo cáo",
+    moodle: "Moodle",
+    system: "Hệ thống",
+    other: "Khác",
+  };
+  const TRIGGER_LABEL = { ui: "Giao diện", api: "Gọi API", scheduler: "Lịch tự động" };
+
+  const runPill = (status) => {
+    const [kind, label] = RUN_STATUS[status] || ["none", status || "—"];
+    return pill(kind, label);
+  };
+
+  // Ưu tiên lịch sử trên MongoDB (chung cho mọi người, mọi máy);
+  // chưa kết nối MongoDB thì dùng bản lưu trên trình duyệt này.
+  async function renderActivity() {
     const box = $("#activityList");
+
+    try {
+      const { body } = await api("/api/history/runs?limit=8");
+      if (body?.success) {
+        $("#activityClear").hidden = true;
+        $("#activityAll").hidden = false;
+        const items = body.data.items || [];
+        box.innerHTML = items.length
+          ? items
+              .map(
+                (r) =>
+                  `<li>${runPill(r.status)}` +
+                  `<div><b>${esc(r.title)}</b><span>${esc(r.message || "")}${r.actor ? ` · ${esc(r.actor)}` : ""}</span></div>` +
+                  `<a href="#/history/${esc(r.id)}">${esc(fmtTime(r.startedAt))}</a></li>`
+              )
+              .join("")
+          : '<li class="empty">Chưa có lần chạy nào.</li>';
+        return;
+      }
+    } catch {
+      // không gọi được thì dùng bản lưu trên trình duyệt
+    }
+
+    $("#activityClear").hidden = false;
+    $("#activityAll").hidden = true;
     const list = storage.getJSON(KEY.activity, []);
 
     if (!list.length) {
@@ -367,7 +423,7 @@
         (a) =>
           `<li>${pill(a.outcome)}` +
           `<div><b>${esc(a.title)}</b><span>${esc(a.message)}</span></div>` +
-          `<a href="#/${esc(a.page)}" title="${esc(PAGE_TITLES[a.page] || "")}">${esc(fmtTime(a.at))}</a></li>`
+          `<a href="${a.runId ? `#/history/${esc(a.runId)}` : `#/${esc(a.page)}`}" title="${esc(PAGE_TITLES[a.page] || "")}">${esc(fmtTime(a.at))}</a></li>`
       )
       .join("");
   }
@@ -462,6 +518,17 @@
     );
   }
 
+  function stepsBlock(steps) {
+    const rows = Object.entries(steps).map(([step, r]) => ({
+      Bước: step,
+      Tổng: r.total ?? "-",
+      "Thành công": r.succeeded ?? "-",
+      "Bỏ qua": r.skipped ?? "-",
+      Lỗi: r.failed ?? r.error ?? "-",
+    }));
+    return `<details class="sub" open><summary>Từng bước</summary>${miniTable(rows, 20)}</details>`;
+  }
+
   function renderResult(log, title, res, elapsedMs) {
     const { body, status } = res;
     const data = body?.data || {};
@@ -470,7 +537,9 @@
     let html =
       `<article class="result result-${outcome}">` +
       `<div class="result-title"><strong>${esc(title)}</strong>${pill(outcome)}` +
-      `<span class="meta">${status ? `HTTP ${status} · ` : ""}${(elapsedMs / 1000).toFixed(1)}s · ${new Date().toLocaleTimeString("vi-VN")}</span></div>` +
+      `<span class="meta">${status ? `HTTP ${status} · ` : ""}${(elapsedMs / 1000).toFixed(1)}s · ${new Date().toLocaleTimeString("vi-VN")}</span>` +
+      (res.runId ? `<a class="result-link" href="#/history/${esc(res.runId)}">Xem chi tiết trong lịch sử →</a>` : "") +
+      "</div>" +
       `<p class="msg">${esc(body?.message || "")}</p>`;
 
     if (data.targetCourse) {
@@ -485,16 +554,7 @@
       html += '<ul class="warn-list">' + data.warnings.map((w) => `<li>${esc(w)}</li>`).join("") + "</ul>";
     }
 
-    if (data.steps) {
-      const rows = Object.entries(data.steps).map(([step, r]) => ({
-        Bước: step,
-        Tổng: r.total ?? "-",
-        "Thành công": r.succeeded ?? "-",
-        "Bỏ qua": r.skipped ?? "-",
-        Lỗi: r.failed ?? r.error ?? "-",
-      }));
-      html += `<details class="sub" open><summary>Từng bước</summary>${miniTable(rows, 20)}</details>`;
-    }
+    if (data.steps) html += stepsBlock(data.steps);
 
     if (data.errors && data.errors.length) {
       html +=
@@ -545,6 +605,7 @@
     }, 1000);
 
     setBusy(true, title);
+    taskHeaders = { "X-Task-Title": encodeURIComponent(title), "X-Task-Page": page };
 
     let res;
     try {
@@ -552,6 +613,7 @@
     } catch (err) {
       res = { ok: false, status: 0, body: { success: false, message: "Không gọi được service: " + err.message } };
     } finally {
+      taskHeaders = null;
       clearInterval(ticker);
       runLine.remove();
       setBusy(false);
@@ -560,7 +622,14 @@
     const outcome = outcomeOf(res);
     renderResult(log, title, res, Date.now() - started);
     toast(`${title}: ${res.body?.message || OUTCOME_LABEL[outcome]}`, outcome === "ok" ? "ok" : "err");
-    recordActivity({ title, outcome, message: res.body?.message || "", page, at: new Date().toISOString() });
+    recordActivity({
+      title,
+      outcome,
+      message: res.body?.message || "",
+      page,
+      runId: res.runId || null,
+      at: new Date().toISOString(),
+    });
     return res;
   }
 
@@ -818,6 +887,7 @@
 
   const PAGES = {
     dashboard: { title: "Tổng quan", enter: refreshDashboard },
+    history: { title: "Lịch sử chạy", enter: enterHistory },
     term: { title: "Đồng bộ đầu học kỳ", enter: updateStepStatuses },
     students: { title: "Sinh viên" },
     teachers: { title: "Giảng viên" },
@@ -832,19 +902,20 @@
   };
   Object.entries(PAGES).forEach(([name, p]) => (PAGE_TITLES[name] = p.title));
 
+  // "#/history/<mã>" -> trang history, tham số là mã lần chạy
   const currentPage = () => {
-    const name = location.hash.replace(/^#\/?/, "").split("?")[0];
-    return PAGES[name] ? name : "dashboard";
+    const [name, param] = location.hash.replace(/^#\/?/, "").split("?")[0].split("/");
+    return PAGES[name] ? { name, param: param || null } : { name: "dashboard", param: null };
   };
 
   function route() {
-    const name = currentPage();
+    const { name, param } = currentPage();
     $$(".page").forEach((p) => (p.hidden = p.dataset.page !== name));
     $$("[data-nav]").forEach((a) => a.classList.toggle("is-active", a.dataset.nav === name));
     document.title = `${PAGES[name].title} — Moodle Sync`;
     document.body.classList.remove("nav-open");
     window.scrollTo(0, 0);
-    if (PAGES[name].enter) PAGES[name].enter();
+    if (PAGES[name].enter) PAGES[name].enter(param);
   }
 
   function go(name) {
@@ -867,7 +938,15 @@
 
   // ==================== kết nối ====================
 
-  const conn = { reachable: null, database: null, moodle: null, checkedAt: null };
+  const conn = { reachable: null, database: null, moodle: null, history: null, checkedAt: null };
+
+  function historyConnHtml(h) {
+    if (!h) return pill("none", "Đang kiểm tra");
+    if (!h.configured) return pill("none", "Chưa cấu hình MONGODB_URI");
+    if (h.connected) return `${pill("ok", "Kết nối tốt")} <span class="muted">database ${esc(h.database)}</span>`;
+    if (h.state === "connecting") return pill("run", "Đang kết nối");
+    return `${pill("err", "Mất kết nối")} <span class="muted">${esc(h.error || "")} — tự thử lại mỗi phút</span>`;
+  }
 
   const connHtml = (value) =>
     value === null ? pill("none", "Đang kiểm tra") : value ? pill("ok", "Kết nối tốt") : pill("err", "Mất kết nối");
@@ -894,11 +973,12 @@
     $("#dashMoodle").innerHTML = connHtml(conn.moodle);
     $("#sysDb").innerHTML = connHtml(conn.database);
     $("#sysMoodle").innerHTML = connHtml(conn.moodle);
+    $("#sysMongo").innerHTML = historyConnHtml(conn.history);
     $("#sysCheckedAt").textContent = conn.checkedAt ? conn.checkedAt.toLocaleString("vi-VN") : "—";
   }
 
   async function checkHealth() {
-    conn.reachable = conn.database = conn.moodle = null;
+    conn.reachable = conn.database = conn.moodle = conn.history = null;
     renderConn();
 
     try {
@@ -907,6 +987,7 @@
       conn.reachable = true;
       conn.database = Boolean(s.database);
       conn.moodle = Boolean(s.moodle);
+      conn.history = body?.data?.history || null;
     } catch {
       conn.reachable = false;
       conn.database = false;
@@ -980,6 +1061,385 @@
     renderActivity();
     if (!scheduler) loadScheduler();
   }
+
+  // ==================== LỊCH SỬ CHẠY ====================
+  // Đọc từ MongoDB qua /api/history. Danh sách và chi tiết đều phân trang ở máy chủ
+  // vì một lần đồng bộ cả học kỳ có thể có hàng chục nghìn dòng.
+
+  // Tiêu đề cột cho dòng chi tiết
+  const COLUMN_TITLES = {
+    MaSinhVien: "Mã SV",
+    HoTenSinhVien: "Họ tên SV",
+    MaGiangVien: "Mã GV",
+    MaNhanSu: "Mã nhân sự",
+    HoTenGiangVien: "Họ tên GV",
+    LoaiGiangVien: "Loại GV",
+    MaNguoiDung: "Mã",
+    HoTen: "Họ tên",
+    TaiKhoan: "Tài khoản",
+    Email: "Email",
+    EmailTuSinh: "Email tự sinh",
+    MaLopHocPhan: "Mã LHP",
+    TenLopHoc: "Tên lớp",
+    TenMonHoc: "Môn học",
+    ShortName: "Shortname",
+    MoodleUserId: "Moodle user",
+    MoodleCourseId: "Moodle course",
+    VaiTro: "Vai trò",
+    ThuocLop: "Thuộc lớp",
+    HanhDong: "Hành động",
+    TrangThai: "Trạng thái",
+    LoiChiTiet: "Lỗi chi tiết",
+    ThoiGian: "Thời gian",
+  };
+
+  const KIND_LABEL = {
+    students: "Tài khoản SV",
+    teachers: "Tài khoản GV",
+    courses: "Khóa học",
+    enrollStudents: "Ghi danh SV",
+    enrollTeachers: "Ghi danh GV",
+    cleanupCampus: "Dọn ghi danh",
+    grades: "Điểm",
+    result: "Kết quả",
+  };
+
+  const fmtDuration = (ms) => {
+    if (typeof ms !== "number") return "—";
+    if (ms < 1000) return `${ms} ms`;
+    if (ms < 60000) return `${(ms / 1000).toFixed(1)} giây`;
+    return `${Math.floor(ms / 60000)} phút ${Math.round((ms % 60000) / 1000)} giây`;
+  };
+
+  const runScope = (s = {}) =>
+    [
+      s.tenDot,
+      s.khoaHoc ? `khóa ${s.khoaHoc}` : s.idKhoaHoc ? `khóa id ${s.idKhoaHoc}` : null,
+      s.idDot ? `đợt id ${s.idDot}` : null,
+    ]
+      .filter(Boolean)
+      .join(" · ") || "—";
+
+  const statusClass = (v) =>
+    v === "Thành công" || v === "Tạo mới" ? "state-ok" : v === "Lỗi" ? "state-err" : "state-skip";
+
+  const hist = {
+    page: 1,
+    limit: 50,
+    run: null,
+    timer: null,
+    detail: { page: 1, limit: 50, status: "", kind: "", q: "" },
+  };
+
+  function pagerHtml(page, limit, total) {
+    const pages = Math.max(1, Math.ceil(total / limit));
+    if (pages <= 1) return "";
+    return `<div class="pager">
+      <button class="btn btn-sm" type="button" data-goto="${page - 1}" ${page === 1 ? "disabled" : ""}>← Trước</button>
+      <span>Trang ${page}/${pages}</span>
+      <button class="btn btn-sm" type="button" data-goto="${page + 1}" ${page === pages ? "disabled" : ""}>Sau →</button>
+      <span class="spacer"></span>
+      <span>Dòng ${((page - 1) * limit + 1).toLocaleString("vi-VN")}–${Math.min(page * limit, total).toLocaleString("vi-VN")} / ${total.toLocaleString("vi-VN")}</span>
+    </div>`;
+  }
+
+  const bindPager = (box, onPage) =>
+    box.querySelectorAll("[data-goto]").forEach((b) => b.addEventListener("click", () => onPage(Number(b.dataset.goto))));
+
+  function enterHistory(id) {
+    clearTimeout(hist.timer);
+    $("#historyListView").hidden = Boolean(id);
+    $("#historyDetailView").hidden = !id;
+    if (id) loadRun(id);
+    else loadRuns();
+  }
+
+  function showHistoryOff(body) {
+    const s = body?.data || {};
+    $("#historyOff").hidden = false;
+    $("#historyOff").innerHTML = s.configured
+      ? `Chưa kết nối được MongoDB (<code>${esc(s.error || s.state || "")}</code>). Service vẫn đồng bộ bình thường nhưng chưa lưu lịch sử, và tự thử kết nối lại mỗi phút. Kiểm tra <code>MONGODB_URI</code> và mạng tới máy MongoDB.`
+      : "Chưa cấu hình MongoDB nên không lưu lịch sử. Thêm <code>MONGODB_URI</code>, <code>MONGODB_DB</code> vào file <code>.env</code> rồi khởi động lại service.";
+  }
+
+  async function loadRuns() {
+    const box = $("#historyTable");
+    const params = new URLSearchParams({ page: hist.page, limit: hist.limit });
+    [
+      ["category", "#hCategory"],
+      ["status", "#hStatus"],
+      ["from", "#hFrom"],
+      ["to", "#hTo"],
+      ["q", "#hQuery"],
+    ].forEach(([key, sel]) => {
+      const value = $(sel).value.trim();
+      if (value) params.set(key, value);
+    });
+
+    box.innerHTML = '<p class="empty">Đang tải lịch sử...</p>';
+    $("#hCount").textContent = "";
+
+    try {
+      const { status, body } = await api(`/api/history/runs?${params}`);
+      if (status === 503) {
+        showHistoryOff(body);
+        box.innerHTML = '<p class="empty">Chưa có lịch sử.</p>';
+        return;
+      }
+      $("#historyOff").hidden = true;
+      if (!body?.success) {
+        box.innerHTML = `<p class="empty">${esc(body?.message || "Không tải được lịch sử")}</p>`;
+        return;
+      }
+
+      const { items, total, page, limit } = body.data;
+      $("#hCount").textContent = `${total.toLocaleString("vi-VN")} lần chạy`;
+      if (!items.length) {
+        box.innerHTML = '<p class="empty">Không có lần chạy nào khớp bộ lọc.</p>';
+        return;
+      }
+
+      const num = (v) => (typeof v === "number" ? v.toLocaleString("vi-VN") : "");
+      const rows = items
+        .map(
+          (r) => `<tr class="row-link" data-run-id="${esc(r.id)}">
+            <td class="nowrap">${esc(fmtTime(r.startedAt))}</td>
+            <td><a href="#/history/${esc(r.id)}">${esc(r.title)}</a>
+              <div class="sub-text">${esc(CATEGORY_LABEL[r.category] || r.category)} · ${esc(TRIGGER_LABEL[r.trigger] || r.trigger)}</div></td>
+            <td>${esc(runScope(r.scope))}</td>
+            <td>${esc(r.actor || "—")}<div class="sub-text">${esc(r.ip || "")}</div></td>
+            <td>${runPill(r.status)}</td>
+            <td class="num">${num(r.summary?.total)}</td>
+            <td class="num">${num(r.summary?.succeeded)}</td>
+            <td class="num">${num(r.summary?.skipped)}</td>
+            <td class="num">${num(r.summary?.failed)}</td>
+            <td class="nowrap">${esc(fmtDuration(r.durationMs))}</td>
+          </tr>`
+        )
+        .join("");
+
+      box.innerHTML =
+        `<table><thead><tr><th>Bắt đầu</th><th>Tác vụ</th><th>Phạm vi</th><th>Người chạy</th><th>Kết quả</th>` +
+        `<th class="num">Tổng</th><th class="num">Thành công</th><th class="num">Bỏ qua</th><th class="num">Lỗi</th><th>Thời lượng</th>` +
+        `</tr></thead><tbody>${rows}</tbody></table>` +
+        pagerHtml(page, limit, total);
+
+      bindPager(box, (p) => {
+        hist.page = p;
+        loadRuns();
+      });
+    } catch {
+      box.innerHTML = '<p class="empty">Không gọi được service.</p>';
+    }
+  }
+
+  // Bấm vào bất kỳ chỗ nào trên dòng để mở chi tiết
+  $("#historyTable").addEventListener("click", (e) => {
+    if (e.target.closest("a, button")) return;
+    const tr = e.target.closest("[data-run-id]");
+    if (tr) location.hash = `#/history/${tr.dataset.runId}`;
+  });
+
+  onSubmit("#historyFilter", () => {
+    hist.page = 1;
+    loadRuns();
+  });
+  $("#hReload").addEventListener("click", () => loadRuns());
+  ["#hCategory", "#hStatus", "#hFrom", "#hTo"].forEach((sel) =>
+    $(sel).addEventListener("change", () => {
+      hist.page = 1;
+      loadRuns();
+    })
+  );
+
+  async function loadRun(id) {
+    clearTimeout(hist.timer);
+    $("#hdTitle").textContent = "Đang tải...";
+    $("#hdMessage").textContent = "";
+    ["#hdInfo", "#hdResult", "#hdTable", "#hdStatusChips"].forEach((sel) => ($(sel).innerHTML = ""));
+    $("#hdCount").textContent = "";
+
+    let res;
+    try {
+      res = await api(`/api/history/runs/${encodeURIComponent(id)}`);
+    } catch {
+      $("#hdTitle").textContent = "Không gọi được service";
+      return;
+    }
+
+    if (!res.body?.success) {
+      $("#hdTitle").textContent = res.status === 404 ? "Không tìm thấy lần chạy" : "Không tải được lần chạy";
+      $("#hdMessage").textContent = res.body?.message || "";
+      return;
+    }
+
+    const r = res.body.data;
+    const sameRun = hist.run?.id === r.id;
+    hist.run = r;
+    if (!sameRun) {
+      hist.detail = { page: 1, limit: 50, status: "", kind: "", q: "" };
+      $("#hdQuery").value = "";
+    }
+    document.title = `${r.title} — Lịch sử chạy — Moodle Sync`;
+
+    $("#hdTitle").textContent = r.title;
+    $("#hdMessage").textContent = r.message || "";
+
+    const kv = (k, v) => `<dt>${esc(k)}</dt><dd>${v}</dd>`;
+    $("#hdInfo").innerHTML =
+      kv("Kết quả", runPill(r.status) + (r.httpStatus ? ` <span class="muted">HTTP ${esc(r.httpStatus)}</span>` : "")) +
+      kv("Loại", esc(CATEGORY_LABEL[r.category] || r.category)) +
+      kv("Nguồn", esc(TRIGGER_LABEL[r.trigger] || r.trigger)) +
+      kv("Người chạy", esc(r.actor || "—") + (r.ip ? ` <span class="muted">${esc(r.ip)}</span>` : "")) +
+      kv("Phạm vi", esc(runScope(r.scope))) +
+      kv("Bắt đầu", esc(fmtTime(r.startedAt))) +
+      kv("Kết thúc", esc(r.finishedAt ? fmtTime(r.finishedAt) : "Chưa xong")) +
+      kv("Thời lượng", esc(fmtDuration(r.durationMs))) +
+      kv("API", r.path ? `<code>${esc([r.method, r.path].filter(Boolean).join(" "))}</code>` : "—") +
+      kv("Trình duyệt", `<span class="muted">${esc(r.userAgent || "—")}</span>`) +
+      kv("Mã lần chạy", `<code>${esc(r.id)}</code>`);
+
+    const data = r.result || {};
+    let html = statBlock(r.summary || {});
+
+    if (data.targetCourse) {
+      html +=
+        `<p class="msg">${data.targetCourse.existing ? "Lớp giữ lại" : "Lớp mới"}: <strong>${esc(data.targetCourse.shortname)}</strong> — ` +
+        `<a href="${esc(data.targetCourse.url)}" target="_blank" rel="noopener">mở trên Moodle ↗</a></p>`;
+    }
+    if (Array.isArray(data.khongTimThay) && data.khongTimThay.length) {
+      html += `<p class="msg">Không tìm thấy: ${esc(data.khongTimThay.join(", "))}</p>`;
+    }
+    if (data.warnings?.length) {
+      html += '<ul class="warn-list">' + data.warnings.map((w) => `<li>${esc(w)}</li>`).join("") + "</ul>";
+    }
+    if (data.steps) html += stepsBlock(data.steps);
+    if (data.errors?.length) {
+      html += `<details class="sub" open><summary>Lỗi (${r.errorCount || data.errors.length})</summary>${miniTable(data.errors, 200)}</details>`;
+    }
+    html +=
+      `<details class="sub"><summary>Tham số gửi lên</summary><pre class="json">${esc(JSON.stringify(r.params, null, 2))}</pre></details>` +
+      `<details class="sub"><summary>Toàn bộ kết quả trả về (JSON)</summary><pre class="json">${esc(JSON.stringify(data, null, 2))}</pre></details>`;
+    $("#hdResult").innerHTML = html;
+
+    // Đồng bộ toàn bộ có nhiều bước, cho lọc chi tiết theo từng bước
+    const kinds = r.detailKinds || [];
+    $("#hdKind").hidden = kinds.length < 2;
+    $("#hdKind").innerHTML =
+      '<option value="">Mọi bước</option>' +
+      kinds.map((k) => `<option value="${esc(k)}">${esc(KIND_LABEL[k] || k)}</option>`).join("");
+    $("#hdKind").value = hist.detail.kind;
+
+    loadRunDetails();
+
+    // Lần chạy còn đang chạy thì tự làm mới
+    if (r.status === "running") {
+      hist.timer = setTimeout(() => {
+        if (currentPage().param === r.id) loadRun(r.id);
+      }, 5000);
+    }
+  }
+
+  async function loadRunDetails() {
+    const r = hist.run;
+    if (!r) return;
+    const d = hist.detail;
+
+    const filters = new URLSearchParams();
+    if (d.status) filters.set("status", d.status);
+    if (d.kind) filters.set("kind", d.kind);
+    if (d.q) filters.set("q", d.q);
+    $("#hdExport").href = `/api/history/runs/${encodeURIComponent(r.id)}/export?${filters}`;
+
+    const params = new URLSearchParams(filters);
+    params.set("page", d.page);
+    params.set("limit", d.limit);
+
+    const box = $("#hdTable");
+    box.innerHTML = '<p class="empty">Đang tải...</p>';
+
+    try {
+      const { body } = await api(`/api/history/runs/${encodeURIComponent(r.id)}/details?${params}`);
+      if (!body?.success) {
+        box.innerHTML = `<p class="empty">${esc(body?.message || "Không tải được chi tiết")}</p>`;
+        return;
+      }
+
+      const { items, total, page, limit, statuses } = body.data;
+      const named = statuses.filter((s) => s.status);
+      const all = statuses.reduce((sum, s) => sum + s.count, 0);
+      $("#hdCount").textContent = `(${all.toLocaleString("vi-VN")})`;
+
+      $("#hdStatusChips").innerHTML = [{ status: "", count: all }, ...named]
+        .map(
+          (s) =>
+            `<button type="button" class="chip-filter${s.status === d.status ? " is-active" : ""}" data-status="${esc(s.status)}">` +
+            `${esc(s.status || "Tất cả")} <b>${s.count.toLocaleString("vi-VN")}</b></button>`
+        )
+        .join("");
+
+      if (!items.length) {
+        box.innerHTML = r.detailCount
+          ? '<p class="empty">Không có dòng nào khớp bộ lọc.</p>'
+          : '<p class="empty">Lần chạy này không có dòng chi tiết.</p>';
+        return;
+      }
+
+      const keys = [];
+      items.forEach((it) => Object.keys(it.data || {}).forEach((k) => keys.includes(k) || keys.push(k)));
+      const showKind = (r.detailKinds || []).length > 1 && !d.kind;
+
+      const head =
+        '<th class="idx">#</th>' +
+        (showKind ? "<th>Bước</th>" : "") +
+        keys.map((k) => `<th>${esc(COLUMN_TITLES[k] || k)}</th>`).join("");
+
+      const body2 = items
+        .map(
+          (it) =>
+            `<tr><td class="idx">${esc(it.seq)}</td>` +
+            (showKind ? `<td>${esc(KIND_LABEL[it.kind] || it.kind)}</td>` : "") +
+            keys
+              .map((k) => {
+                const v = it.data?.[k];
+                const cls = k === "TrangThai" ? ` class="${statusClass(v)}"` : typeof v === "number" ? ' class="num"' : "";
+                return `<td${cls}>${esc(fmtCell(v))}</td>`;
+              })
+              .join("") +
+            "</tr>"
+        )
+        .join("");
+
+      box.innerHTML = `<table><thead><tr>${head}</tr></thead><tbody>${body2}</tbody></table>` + pagerHtml(page, limit, total);
+      bindPager(box, (p) => {
+        d.page = p;
+        loadRunDetails();
+      });
+    } catch {
+      box.innerHTML = '<p class="empty">Không gọi được service.</p>';
+    }
+  }
+
+  $("#hdStatusChips").addEventListener("click", (e) => {
+    const btn = e.target.closest("[data-status]");
+    if (!btn) return;
+    hist.detail.status = btn.dataset.status;
+    hist.detail.page = 1;
+    loadRunDetails();
+  });
+
+  $("#hdKind").addEventListener("change", () => {
+    hist.detail.kind = $("#hdKind").value;
+    hist.detail.status = "";
+    hist.detail.page = 1;
+    loadRunDetails();
+  });
+
+  onSubmit("#hdSearchForm", () => {
+    hist.detail.q = $("#hdQuery").value.trim();
+    hist.detail.page = 1;
+    loadRunDetails();
+  });
 
   // ==================== ĐỒNG BỘ ĐẦU HỌC KỲ ====================
 
@@ -2178,8 +2638,9 @@
       log: logs.report,
       page: "report",
       exec: async () => {
-        const res = await fetch(reportUrl(true));
+        const res = await fetch(reportUrl(true), { headers: taskHeaders || {} });
         const type = res.headers.get("content-type") || "";
+        const runId = res.headers.get("X-Run-Id");
 
         if (!res.ok || type.includes("application/json")) {
           let body;
@@ -2187,13 +2648,14 @@
           return {
             ok: false,
             status: res.status,
+            runId,
             body: { success: false, message: body?.message || `Không tải được file (HTTP ${res.status})` },
           };
         }
 
         const name = fileNameFrom(res.headers.get("content-disposition")) || "bao-cao-khoa-diem.xlsx";
         saveBlob(await res.blob(), name);
-        return { ok: true, status: res.status, body: { success: true, message: `Đã tải file ${name}`, data: {} } };
+        return { ok: true, status: res.status, runId, body: { success: true, message: `Đã tải file ${name}`, data: {} } };
       },
     });
   });

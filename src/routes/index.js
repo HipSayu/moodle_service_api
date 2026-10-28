@@ -7,6 +7,7 @@ import dataController from "../controllers/dataController.js";
 import reportController from "../controllers/reportController.js";
 import moodleController from "../controllers/moodleController.js";
 import systemController from "../controllers/systemController.js";
+import historyController from "../controllers/historyController.js";
 
 const router = express.Router();
 const h = asyncHandler; // mọi handler async đều đi qua đây để lỗi rơi về errorHandler
@@ -107,5 +108,12 @@ router.delete("/moodle/courses/:courseId/quizzes", h(moodleController.deleteCour
 
 router.post("/moodle/final-quizzes", h(moodleController.createFinalQuizzes));
 router.delete("/moodle/quizzes", h(moodleController.deleteAllQuizzes));
+
+// ==================== LỊCH SỬ CHẠY (MongoDB) ====================
+router.get("/history/status", h(historyController.status));
+router.get("/history/runs", h(historyController.listRuns));
+router.get("/history/runs/:id", h(historyController.getRun));
+router.get("/history/runs/:id/details", h(historyController.listDetails));
+router.get("/history/runs/:id/export", h(historyController.exportDetails));
 
 export default router;

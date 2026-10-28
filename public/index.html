@@ -54,6 +54,7 @@
   <aside class="sidebar" id="sidebar">
     <nav class="nav">
       <a class="nav-item" href="#/dashboard" data-nav="dashboard">Tổng quan</a>
+      <a class="nav-item" href="#/history" data-nav="history">Lịch sử chạy</a>
 
       <p class="nav-group">Đồng bộ dữ liệu</p>
       <a class="nav-item" href="#/term" data-nav="term">Đồng bộ đầu học kỳ</a>
@@ -135,12 +136,92 @@
       <section class="box">
         <div class="box-head">
           <h2>Hoạt động gần đây</h2>
-          <button class="btn btn-ghost btn-sm" type="button" id="activityClear">Xóa lịch sử</button>
+          <div class="actions">
+            <a class="btn btn-sm" href="#/history" id="activityAll">Xem tất cả</a>
+            <button class="btn btn-ghost btn-sm" type="button" id="activityClear">Xóa lịch sử</button>
+          </div>
         </div>
         <div class="box-body">
           <ul class="activity" id="activityList"></ul>
         </div>
       </section>
+    </section>
+
+    <!-- ==================== LỊCH SỬ CHẠY ==================== -->
+    <section class="page" data-page="history" hidden>
+      <div id="historyListView">
+        <header class="page-head">
+          <h1>Lịch sử chạy</h1>
+          <p class="page-desc">Mọi lần chạy tác vụ — từ giao diện, gọi thẳng API hay lịch tự động — đều được lưu trong MongoDB:
+            ai chạy, tham số gửi lên, thời gian, kết quả, lỗi và chi tiết từng dòng. Bấm vào một lần chạy để xem.</p>
+        </header>
+
+        <p class="note note-warn" id="historyOff" hidden></p>
+
+        <section class="box">
+          <form class="toolbar" id="historyFilter" autocomplete="off">
+            <select id="hCategory" class="select">
+              <option value="">Tất cả loại</option>
+              <option value="sync">Đồng bộ</option>
+              <option value="enroll">Ghi danh</option>
+              <option value="merge">Gộp lớp</option>
+              <option value="cleanup">Dọn ghi danh</option>
+              <option value="report">Báo cáo</option>
+              <option value="moodle">Moodle khác</option>
+              <option value="system">Hệ thống</option>
+            </select>
+            <select id="hStatus" class="select">
+              <option value="">Mọi kết quả</option>
+              <option value="success">Thành công</option>
+              <option value="partial">Có lỗi một phần</option>
+              <option value="failed">Thất bại</option>
+              <option value="running">Đang chạy</option>
+            </select>
+            <label class="inline-field">Từ <input type="date" id="hFrom" class="input"></label>
+            <label class="inline-field">đến <input type="date" id="hTo" class="input"></label>
+            <input type="search" id="hQuery" class="input" placeholder="Tên tác vụ, học kỳ, người chạy...">
+            <button class="btn btn-primary" type="submit">Lọc</button>
+            <span class="count" id="hCount"></span>
+            <button class="btn" type="button" id="hReload">Làm mới</button>
+          </form>
+          <div id="historyTable" class="table-wrap"></div>
+        </section>
+      </div>
+
+      <div id="historyDetailView" hidden>
+        <header class="page-head">
+          <p class="crumbs"><a href="#/history">← Lịch sử chạy</a></p>
+          <h1 id="hdTitle">—</h1>
+          <p class="page-desc" id="hdMessage"></p>
+        </header>
+
+        <div class="grid-2">
+          <section class="box">
+            <div class="box-head"><h2>Thông tin chung</h2></div>
+            <div class="box-body"><dl class="kv" id="hdInfo"></dl></div>
+          </section>
+          <section class="box">
+            <div class="box-head"><h2>Kết quả</h2></div>
+            <div class="box-body log" id="hdResult"></div>
+          </section>
+        </div>
+
+        <section class="box">
+          <div class="box-head">
+            <h2>Chi tiết từng dòng <span class="count-inline" id="hdCount"></span></h2>
+            <a class="btn btn-sm" id="hdExport" href="#" download>Tải CSV</a>
+          </div>
+          <div class="toolbar">
+            <div class="chips" id="hdStatusChips"></div>
+            <select id="hdKind" class="select" hidden></select>
+            <form id="hdSearchForm" class="toolbar-group" autocomplete="off">
+              <input type="search" id="hdQuery" class="input" placeholder="Tìm mã, họ tên, lớp, lỗi...">
+              <button class="btn" type="submit">Tìm</button>
+            </form>
+          </div>
+          <div id="hdTable" class="table-wrap"></div>
+        </section>
+      </div>
     </section>
 
     <!-- ==================== ĐỒNG BỘ ĐẦU HỌC KỲ ==================== -->
@@ -533,7 +614,7 @@
                 <button class="btn btn-primary js-run" type="button" id="cleanupPreview">1. Xem trước danh sách</button>
                 <button class="btn btn-danger js-run" type="button" id="cleanupApply">2. Gỡ thật</button>
               </div>
-              <p class="help">Xem trước không thay đổi gì trên Moodle, kèm file Excel để kiểm tra. Gỡ thật thì không hoàn tác được.</p>
+              <p class="help">Xem trước không thay đổi gì trên Moodle; danh sách từng em xem ở <a href="#/history">Lịch sử chạy</a>. Gỡ thật thì không hoàn tác được.</p>
             </div>
           </div>
         </div>
@@ -673,6 +754,7 @@
             <dl class="kv">
               <dt>SQL Server (EDU_NUCE)</dt><dd id="sysDb">—</dd>
               <dt>Moodle</dt><dd id="sysMoodle">—</dd>
+              <dt>MongoDB (lịch sử)</dt><dd id="sysMongo">—</dd>
               <dt>Kiểm tra lúc</dt><dd id="sysCheckedAt">—</dd>
             </dl>
           </div>

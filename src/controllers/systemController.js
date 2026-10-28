@@ -1,6 +1,7 @@
 import databaseService from "../services/databaseService.js";
 import moodleService from "../services/moodleService.js";
 import schedulerService from "../services/schedulerService.js";
+import historyService from "../services/historyService.js";
 import { ok, fail } from "../utils/response.js";
 
 // Kiểm tra kết nối SQL Server và Moodle
@@ -19,12 +20,13 @@ const health = async (req, res) => {
     services.moodle = false;
   }
 
+  // MongoDB chỉ lưu lịch sử, không tính vào trạng thái sống còn của service
   const healthy = services.database && services.moodle;
 
   return res.status(healthy ? 200 : 503).json({
     success: healthy,
     message: healthy ? "Tất cả dịch vụ hoạt động bình thường" : "Có dịch vụ không kết nối được",
-    data: { status: healthy ? "ok" : "degraded", services },
+    data: { status: healthy ? "ok" : "degraded", services, history: historyService.status() },
     timestamp: new Date().toISOString(),
   });
 };

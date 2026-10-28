@@ -2,6 +2,7 @@ import ExcelJS from "exceljs";
 import path from "path";
 import { fileURLToPath } from "url";
 import { syncLogger } from "./logger.js";
+import config from "../config/index.js";
 import CSVHelper, { COLUMN_TITLES } from "./csvHelper.js";
 
 const __filename = fileURLToPath(import.meta.url);
@@ -76,6 +77,8 @@ class ExcelHelper {
    * @param {object} options   subDir, groupBy, meta (các dòng thông tin ở đầu sheet Tổng hợp)
    */
   static async saveRows(rows, fileName, { subDir = "", groupBy = null, meta = {} } = {}) {
+    if (!config.exportFiles) return null;
+
     try {
       if (!rows || rows.length === 0) {
         syncLogger.info(`Không có dữ liệu để ghi Excel: ${fileName}`);

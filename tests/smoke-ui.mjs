@@ -41,6 +41,7 @@ const dynamicSuffixes = {
   '/api/enrollments/teachers': '/api/enrollments/teachers/:maGiangVien',
   '/api/moodle/courses/': '/api/moodle/courses/:courseId/users',
   '/api/data/': '/api/data/:dataset',
+  '/api/history/runs/': '/api/history/runs/:id',
 };
 
 const matches = (fePath) =>
